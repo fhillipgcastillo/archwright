@@ -454,3 +454,128 @@ file. Both are cheap and both pay for themselves immediately.
 **Would change if.** Never, without a deliberate re-scoping conversation. Adding
 a package repo means signing keys, key rotation, a mirror, and writing migrations
 forever.
+
+---
+
+# Implementation log
+
+The numbered decisions above are design-level and were made before building.
+This section is the running chain of everything decided **during**
+implementation — whether chosen deliberately, forced by a review finding, or
+forced by something failing in the VM.
+
+The point is that a later reader can tell the difference between "this is
+load-bearing, leave it alone" and "this was arbitrary, change it freely".
+Anything removed without reading this risks re-introducing a bug that was
+already paid for once.
+
+Format: **what changed** · *why* · **trigger**.
+
+## 2026-09-06 — milestone 1
+
+### L1 — Work on a `milestone-1` branch, not `main`
+`main` was already pushed to GitHub. Nine commits of unverified installer work
+had no business landing there directly. **Trigger:** on the fly.
+
+### L2 — `tools/fetch-shellcheck.ps1` and `test/lint.sh` added
+shellcheck was not installed and the repo's own rules require clean output.
+Fetching a portable copy into `.tools/` matches how the project treats every
+other tool: nothing system-wide, delete the folder to undo. `test/lint.sh`
+exists so the invocation cannot drift between `CLAUDE.md`, the plan and CI.
+Neither was in the plan; both are scope, and both were judged worth it.
+**Trigger:** missing dependency.
+
+### L3 — Lint covers untracked files
+`git ls-files` alone made the lint gate blind during the write-lint-commit
+loop — a syntactically broken new file passed. Now `git ls-files -co
+--exclude-standard`. It immediately caught CRLF that a patch script of mine
+had introduced. **Trigger:** adversarial review.
+
+### L4 — `assert_fails` requires the command to exist
+It treated any non-zero status as success, including 127. Deleting `aw_die`
+outright left the whole suite green. Now 126/127 are failures and the command
+must exist. **Trigger:** adversarial review (mutation testing).
+
+### L5 — Test failures recorded in a file, not a variable
+A `TESTS_FAILED` increment inside a pipeline or subshell is lost when it
+exits, so a failing assertion could report as a pass. **Trigger:** adversarial
+review.
+
+### L6 — Manifest tests assert structure, not row counts
+`assert_eq "$n" "5"` broke when a subvolume was legitimately added and stayed
+green when the file was corrupted — tabs replaced by spaces, every package
+renamed to junk. Now: field counts, required packages by name, the root
+subvolume is `@`, mountpoints absolute and unique. **Trigger:** adversarial
+review.
+
+### L7 — `aw_answers_load` resets before parsing
+Loading a second answer file inherited values from the first, so validation
+passed on a field the new file never set. **Trigger:** own test caught it.
+
+### L8 — Answer values: CR stripped, trimmed, quoted values verbatim
+A clone with Git-for-Windows' default `core.autocrlf=true` failed four tests
+and produced `AW_DISK=/dev/vda\r` that still validated. Quoted values are kept
+byte-for-byte because passwords contain `#` and may end in a space — eating
+either would lock a user out of the machine they just installed.
+**Trigger:** adversarial review.
+
+### L9 — Answer values are validated, and the "cannot execute" claim was corrected
+The header claimed values could not execute because the file is never sourced.
+That was false end to end: values are interpolated into `aw_run_in_chroot`.
+Non-secret fields are now pattern-validated; secrets stay unconstrained
+because they only ever travel on stdin. **Trigger:** adversarial review.
+
+### L10 — `.gitattributes` pins LF
+Scripts are authored on Windows and executed in Linux. CRLF fails in ways that
+never name the cause. **Trigger:** adversarial review.
+
+### L11 — Cross-phase state in `/run/archwright/state`
+Each `install.sh --phase X` is a separate process, so `AW_ESP_DEV` and
+`AW_ROOT_DEV` from the disk phase were simply gone by the boot phase. `/run`
+is tmpfs, which is the right lifetime. Derivation from the running system is
+kept as a fallback so a phase can still be run standalone.
+**Trigger:** VM failure.
+
+### L12 — `install.sh` pins `LC_ALL=C`
+`parted`, `sort` and `comm` are all locale-sensitive and `lib/partition.sh`
+depends on their output being stable. **Trigger:** adversarial review
+(collation bug).
+
+### L13 — `curl` and `libnotify` added to `manifest/core.packages`
+`curl` was arriving only transitively via `git`; the installed system needs it
+explicitly. `libnotify` was a dependency of `limine-snapper-sync`, which has
+since been dropped — **`libnotify` is now unused and can go** unless something
+else claims it. **Trigger:** on the fly.
+
+### L14 — All AUR build machinery removed
+Superseded by the D2 amendment. Along with it went a throwaway `aurbuild`
+user, a sudoers drop-in, and `manifest/aur.packages`. Two findings from that
+work are worth keeping even though the code is gone: **the Arch live ISO does
+not ship git**, and **its `sudo` has no usable `secure_path`**, so
+`sudo -u someuser somecmd` fails with "command not found" even when the
+command is installed. Use `runuser` with an explicit PATH if this is ever
+needed again. **Trigger:** VM failure.
+
+### L15 — The `bin/` directory must be in the served tree
+`serve_repo()` packed only `install.sh`, `lib`, `manifest` and `test`, so
+`archwright-limine-update` silently never reached the guest. Any new top-level
+directory the installer reads has to be added there too.
+**Trigger:** VM failure.
+
+### L16 — Tag is `m1-verified`, not `milestone-1`
+A tag sharing a name with a branch makes every ref ambiguous and git warns on
+each use. **Trigger:** on the fly.
+
+---
+
+## Known gaps carried out of milestone 1
+
+Recorded so they are not mistaken for decisions.
+
+| Gap | Detail |
+|---|---|
+| **No firewall** | The spec calls for `ufw` deny-all-inbound (D-level, §3). `ufw` is not in the manifest and nothing configures it, while `sshd` **is** enabled — so a fresh install listens on port 22 unprotected. Harmless in a VM, not on real hardware. Close before shipping anything to a real machine |
+| **Plymouth installed but unconfigured** | No boot splash, no themed unlock. Dead weight until the theming milestone |
+| **`fetch-shellcheck.ps1` does not verify a checksum** | Unlike `fetch-arch-iso.sh`, which checks sha256. Inconsistent |
+| **`libnotify` now unused** | See L13 |
+| **Windows host path unmaintained** | `test/vm-install.ps1` and `tools/fetch-qemu-windows.ps1` are not written or verified. See D13 |
