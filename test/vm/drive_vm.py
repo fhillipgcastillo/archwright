@@ -490,6 +490,13 @@ def phase_base():
             ("test -d /mnt/home/test/.local/state/archwright && echo SKEL-OK", "SKEL-OK"),
             ("arch-chroot /mnt id -nG test", "wheel"),
             ("arch-chroot /mnt systemctl is-enabled NetworkManager.service", "enabled"),
+            ("arch-chroot /mnt systemctl is-enabled ufw.service", "enabled"),
+            ("grep '^DEFAULT_INPUT_POLICY=' /mnt/etc/default/ufw", "DROP"),
+            ("grep '^DEFAULT_OUTPUT_POLICY=' /mnt/etc/default/ufw", "ACCEPT"),
+            ("grep '^ENABLED=' /mnt/etc/ufw/ufw.conf", "yes"),
+            # sshd must NOT be enabled: a base install should not start
+            # listening on the network without being asked.
+            ("arch-chroot /mnt systemctl is-enabled sshd.service || true", "disabled"),
             # `systemctl is-enabled` exits non-zero for a masked unit even
             # while printing 'masked', so this one is asserted on output only.
             ("arch-chroot /mnt systemctl is-enabled NetworkManager-wait-online.service"

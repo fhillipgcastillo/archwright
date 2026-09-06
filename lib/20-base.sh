@@ -67,9 +67,33 @@ EOF
   arch-chroot /mnt visudo -cf /etc/sudoers.d/10-wheel >/dev/null \
     || aw_die "generated sudoers file is invalid"
 
+  aw_log info "configuring the firewall"
+  # The config files are edited directly rather than running `ufw` here.
+  # Running it would manipulate the LIVE INSTALLER's kernel firewall - the
+  # chroot shares the running kernel's netfilter tables - which is not ours to
+  # change and would not persist to the target anyway.
+  [ -f /mnt/etc/default/ufw ] || aw_die "ufw is not installed in the target"
+  sed -i \
+    -e 's/^DEFAULT_INPUT_POLICY=.*/DEFAULT_INPUT_POLICY="DROP"/' \
+    -e 's/^DEFAULT_OUTPUT_POLICY=.*/DEFAULT_OUTPUT_POLICY="ACCEPT"/' \
+    -e 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="DROP"/' \
+    /mnt/etc/default/ufw
+  sed -i 's/^ENABLED=.*/ENABLED=yes/' /mnt/etc/ufw/ufw.conf
+  grep -q '^DEFAULT_INPUT_POLICY="DROP"' /mnt/etc/default/ufw \
+    || aw_die "failed to set the default inbound policy to DROP"
+  grep -q '^ENABLED=yes' /mnt/etc/ufw/ufw.conf \
+    || aw_die "failed to enable ufw in its own config"
+
   aw_log info "enabling services"
-  aw_run_in_chroot "systemctl enable NetworkManager.service sshd.service" \
+  aw_run_in_chroot "systemctl enable NetworkManager.service ufw.service" \
     || aw_die "could not enable base services"
+
+  # sshd is installed but deliberately NOT enabled, and no port is opened.
+  # A base system that anyone can install should not start listening on the
+  # network without being asked. Turn it on with:
+  #   sudo ufw allow ssh && sudo systemctl enable --now sshd
+  aw_run_in_chroot "systemctl disable sshd.service" >/dev/null 2>&1 || true
+
   # Nothing in the session needs to block on the network, and waiting for DHCP
   # stalls graphical.target on every boot.
   aw_run_in_chroot "systemctl mask NetworkManager-wait-online.service" \

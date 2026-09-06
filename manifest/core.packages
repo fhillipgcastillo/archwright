@@ -22,13 +22,13 @@ snapper
 ## Group: boot
 efibootmgr
 limine
-libnotify
 mkinitcpio
 plymouth
 
 ## Group: network
 networkmanager
 openssh
+ufw
 
 ## Group: cli-staples
 bash-completion

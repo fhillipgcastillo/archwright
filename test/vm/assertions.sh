@@ -35,6 +35,12 @@ check "limine.conf boots the kernel" sh -c 'grep -q "path: boot():/vmlinuz-linux
 check "limine-update tool present"  test -x /usr/bin/archwright-limine-update
 check "NetworkManager enabled"      sh -c 'systemctl is-enabled NetworkManager.service | grep -qx enabled'
 check "wait-online is masked"       sh -c 'systemctl is-enabled NetworkManager-wait-online.service 2>/dev/null | grep -qx masked'
+check "firewall is active"          sh -c 'ufw status | grep -qi "^Status: active"'
+check "inbound is denied"           sh -c 'ufw status verbose | grep -qi "deny (incoming)"'
+check "outbound is allowed"         sh -c 'ufw status verbose | grep -qi "allow (outgoing)"'
+check "no ports are open"           sh -c '! ufw status | grep -qE "ALLOW +Anywhere"'
+check "sshd is NOT enabled"         sh -c '! systemctl is-enabled sshd.service 2>/dev/null | grep -qx enabled'
+check "sshd is NOT listening"       sh -c '! ss -Hltn "sport = :22" | grep -q .'
 check "archwright tree installed"   test -f /usr/share/archwright/VERSION
 
 # Snapshot boot entries are the entire reason Limine was chosen over

@@ -576,10 +576,8 @@ Recorded so they are not mistaken for decisions.
 
 | Gap | Detail |
 |---|---|
-| **No firewall** | The spec calls for `ufw` deny-all-inbound (D-level, §3). `ufw` is not in the manifest and nothing configures it, while `sshd` **is** enabled — so a fresh install listens on port 22 unprotected. Harmless in a VM, not on real hardware. Close before shipping anything to a real machine |
 | **Plymouth installed but unconfigured** | No boot splash, no themed unlock. Dead weight until the theming milestone |
 | **`fetch-shellcheck.ps1` does not verify a checksum** | Unlike `fetch-arch-iso.sh`, which checks sha256. Inconsistent |
-| **`libnotify` now unused** | See L13 |
 | **Windows host path unmaintained** | `test/vm-install.ps1` and `tools/fetch-qemu-windows.ps1` are not written or verified. See D13 |
 
 ### L17 — `README.md` written: the real-hardware bootstrap
@@ -625,3 +623,26 @@ for users in `README.md` under "Honest limitations".
 | **Wi-Fi firmware** | Some chipsets need firmware the ISO does not carry. Preflight reports "no network" without saying why |
 | **Tested cmdline differs from the shipped one** | The harness sets `SERIAL_CONSOLE=1`, adding `console=ttyS0`. A real install leaves it `0`, so the exact command line a user gets has never been booted |
 | **Both microcode packages always installed** | `amd-ucode` and `intel-ucode` both land, so the generated menu loads both. Harmless — the kernel ignores the wrong-vendor image — but not what a real install should look like |
+
+### L20 — Firewall on by default; `sshd` installed but not enabled
+`ufw` is now in the manifest, configured deny-inbound / allow-outbound, and
+enabled. **No port is opened at all** — not even SSH.
+
+Two details worth keeping:
+
+- The config files (`/etc/default/ufw`, `/etc/ufw/ufw.conf`) are edited
+  directly rather than by running `ufw` in the chroot. The chroot shares the
+  **live installer's** running kernel, so `ufw` commands there would mutate the
+  installer's own netfilter tables and would not persist to the target anyway.
+- `sshd` was previously *enabled*, which combined with the absent firewall meant
+  a fresh install listened on port 22 unprotected. It is now installed and
+  disabled. A base system that anyone can install has no business listening on
+  the network unasked; the README documents turning it on deliberately.
+
+**Trigger:** gap review — the spec required a firewall (§3) and nothing
+implemented it.
+
+### L21 — `libnotify` removed from the manifest
+It was only ever a dependency of `limine-snapper-sync`, which L14/D2 removed.
+Found by writing the implementation log, which is the point of writing it.
+**Trigger:** the decision log itself.

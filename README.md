@@ -13,7 +13,8 @@ it by hand, and this **installer** that does it for you.
 
 **What works today:** a bootable, fully encrypted, snapshot-capable Arch base
 system. UEFI, LUKS2, btrfs subvolumes, Limine with per-snapshot boot entries,
-snapper, a user account, and networking.
+snapper, a user account, networking, and a firewall that denies everything
+inbound.
 
 **What does not exist yet:** any graphical environment. This installs to a
 **text login prompt**. No Hyprland, no desktop, no applications beyond the CLI
@@ -171,7 +172,24 @@ Worth trying immediately:
 lsblk -f                      # see the LUKS layer and the btrfs subvolumes
 snapper -c root list          # the baseline snapshot taken at install
 cat /boot/limine.conf         # the boot menu, including the snapshot entry
+sudo ufw status verbose       # firewall: deny incoming, allow outgoing
 ```
+
+### Networking posture
+
+The firewall is on from first boot: **all inbound traffic is denied, no ports
+are open**. Outbound is unrestricted.
+
+`openssh` is installed but the service is **not enabled** — a base system that
+anyone can install has no business listening on the network unasked. Turn it on
+deliberately:
+
+```sh
+sudo ufw allow ssh
+sudo systemctl enable --now sshd
+```
+
+Set up key authentication before you do that on any network you do not control.
 
 ---
 
@@ -213,10 +231,7 @@ these, which no one has yet tested on physical hardware:
   install leaves it at `0`. A one-parameter difference, but a real one.
 
 Known gaps in the software itself are tracked in
-[`docs/decisions.md`](docs/decisions.md) under "Known gaps". The most important
-today: **there is no firewall configured, and `sshd` is enabled** — a fresh
-install listens on port 22. Fine on a disconnected test machine, not fine on a
-network you do not control.
+[`docs/decisions.md`](docs/decisions.md) under "Known gaps".
 
 ---
 
