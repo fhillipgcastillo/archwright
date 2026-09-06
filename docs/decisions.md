@@ -646,3 +646,65 @@ implemented it.
 It was only ever a dependency of `limine-snapper-sync`, which L14/D2 removed.
 Found by writing the implementation log, which is the point of writing it.
 **Trigger:** the decision log itself.
+
+## 2026-09-06 — milestone 2
+
+### L22 — The test VM gets one virtio GPU with a render node
+Milestone 2 gates on a real Hyprland session, and Hyprland needs DRM with EGL.
+Probing before planning found QEMU's default bochs display provides a card and
+a connected connector but **no render node**, so Hyprland would have silently
+fallen back to software rendering and the harness would have been testing a
+path no real machine takes. `-vga none -device virtio-gpu-pci` gives exactly
+one card, one connector and `renderD128` — the shape of a real single-GPU
+machine. Milestone 1 was re-run green afterwards to confirm changing the
+emulated graphics did not disturb the base install.
+**Trigger:** deliberate probe before planning, after the UKI lesson.
+
+### L23 — `AUTOLOGIN` is a real option, not a test hack
+greetd's tuigreet runs on VT1 and the harness only has a serial console, so the
+automated gate cannot type a password. Rather than a test-only branch,
+autologin is a supported answer-file option — reasonable on a single-user
+laptop — which the test enables. The gate also asserts the interactive tuigreet
+path is configured, so the shipped default is not left verified by inspection
+alone. **Trigger:** the harness could not exercise the shipped login path.
+
+### L24 — The served tree is an exclude list, not an allowlist
+`serve_repo()` packed a hardcoded list of directories. It silently omitted
+`bin/` in milestone 1 (L15) and `config/` in milestone 2, each producing a
+failure several layers from the cause. It now packs everything in the repo root
+outside `SERVE_EXCLUDE`, so adding a directory the installer reads does not
+require remembering that this function exists.
+**Trigger:** the same bug twice.
+
+### L25 — Assertions that need shell state must be functions, not `sh -c` strings
+Four session assertions used `sh -c '...'`, which spawns a child shell that sees
+neither `AW_XDG` (never exported) nor `hyprctl_user` (a shell function). All
+four would have failed for entirely the wrong reason, sending the next person
+hunting in the compositor. `check` runs its arguments in the current shell, so
+helper functions work correctly. Caught by shellcheck as SC2016, which is
+usually a nit and here was a real bug.
+**Trigger:** lint.
+
+### L26 — `hyprctl` needs `HYPRLAND_INSTANCE_SIGNATURE`
+Without it, hyprctl has no idea which compositor socket to talk to and fails
+in a way indistinguishable from "the session never started" — the dangerous
+kind of failure, because it points at the wrong subsystem. The assertion helper
+now derives the signature from the newest directory under
+`$XDG_RUNTIME_DIR/hypr` and, when there is none, prints the directory contents
+instead of failing mutely. **Trigger:** first gate run.
+
+### L27 — Do not assert that a D-Bus-activated service is running
+`xdg-desktop-portal-hyprland` starts when an application asks for a file picker
+or a screencast. With nothing running that wants one, it is correctly not
+running, so `pgrep` for it asserted nothing. The gate now checks what the
+installer is actually responsible for: the binary, both `.portal` registration
+files, and the D-Bus activation file — all four paths verified against the Arch
+package file lists rather than guessed. **Trigger:** first gate run.
+
+## Real-hardware gaps added by milestone 2
+
+| Gap | Detail |
+|---|---|
+| **Graphics drivers** | The VM uses virtio-gpu. `mesa` covers Intel and AMD; **NVIDIA machines will not reach a session** until the hardware milestone adds driver selection. The base system will still boot |
+| **Only one monitor, one mode** | `monitor = , preferred, auto, 1` is untested against multiple outputs, mixed DPI or fractional scaling |
+| **No lock screen** | `Super + Shift + E` exits the session; there is nothing between an unattended machine and the greeter until milestone 3 |

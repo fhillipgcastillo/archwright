@@ -9,16 +9,19 @@ it by hand, and this **installer** that does it for you.
 
 ---
 
-## ⚠️ Status: milestone 1 of 7
+## ⚠️ Status: milestone 2 of 7
 
-**What works today:** a bootable, fully encrypted, snapshot-capable Arch base
-system. UEFI, LUKS2, btrfs subvolumes, Limine with per-snapshot boot entries,
-snapper, a user account, networking, and a firewall that denies everything
-inbound.
+**What works today:** a bootable, fully encrypted, snapshot-capable Arch system
+that starts a **Hyprland desktop**. UEFI, LUKS2, btrfs subvolumes, Limine with
+per-snapshot boot entries, snapper, a deny-all firewall — and a graphical
+session with a terminal, audio and desktop portals.
 
-**What does not exist yet:** any graphical environment. This installs to a
-**text login prompt**. No Hyprland, no desktop, no applications beyond the CLI
-basics. Those are milestones 2–5.
+**What does not exist yet:** a status bar, notifications, an app launcher or a
+lock screen (milestone 3); applications beyond a terminal (milestone 4); the AI
+tooling (milestone 5).
+
+Once you are in the session: `Super + Return` opens a terminal, `Super + Q`
+closes a window, `Super + 1..4` switches workspace, `Super + Shift + E` exits.
 
 Verified end-to-end in QEMU on every commit. See "Honest limitations" below for
 what that does and does not prove about your hardware.
@@ -135,6 +138,7 @@ LUKS_PASSPHRASE=change-me  # typed at every boot to unlock the disk
 LOCALE=en_US.UTF-8
 TIMEZONE=America/New_York  # see: timedatectl list-timezones
 KEYMAP=us
+AUTOLOGIN=0                # 1 skips the login prompt entirely
 SERIAL_CONSOLE=0           # leave at 0 - test builds only
 ```
 
@@ -153,8 +157,8 @@ bash install.sh --answers /root/answers.conf
 It will show you the target disk and require you to type `ERASE` to continue.
 Expect **20–40 minutes**, mostly package downloads.
 
-Add `--yes` to skip the confirmation, or `--phase <preflight|disk|base|boot>` to
-run a single stage.
+Add `--yes` to skip the confirmation, or
+`--phase <preflight|disk|base|boot|session>` to run a single stage.
 
 ## 8. Reboot
 
@@ -163,10 +167,10 @@ reboot
 ```
 
 Remove the USB stick. You should get the Limine boot menu, then a passphrase
-prompt, then a text login. Log in with the username and password from your
-answer file.
+prompt, then the greetd login screen. Log in with the username and password
+from your answer file and Hyprland starts.
 
-Worth trying immediately:
+`Super + Return` opens a terminal. Worth trying in it:
 
 ```sh
 lsblk -f                      # see the LUKS layer and the btrfs subvolumes
@@ -216,9 +220,9 @@ Linux with KVM. See `CLAUDE.md`.
 
 ## Honest limitations
 
-Milestone 1 is verified in QEMU on every change. That proves the partitioning,
-encryption, filesystem and bootloader logic is correct. It does **not** prove
-these, which no one has yet tested on physical hardware:
+Milestone 2 is verified in QEMU on every change. That proves the partitioning,
+encryption, filesystem, bootloader and session logic is correct. It does **not**
+prove these, which no one has yet tested on physical hardware:
 
 - **NVMe disks.** Only `/dev/vda` has ever been exercised. The naming logic for
   `nvme0n1p1` and `mmcblk0p1` is unit-tested but has not touched real hardware.
@@ -226,6 +230,10 @@ these, which no one has yet tested on physical hardware:
   refuse the NVRAM boot entry the installer creates. It falls back to the
   removable-media path (`EFI/BOOT/BOOTX64.EFI`), which nearly all firmware
   boots, but this is untested against anything quirky.
+- **Graphics drivers.** The test VM uses a virtio GPU. Real machines need real
+  drivers: `mesa` covers Intel and AMD, but **NVIDIA cards will not work** until
+  the hardware milestone adds driver selection. On an NVIDIA machine, expect the
+  base system to boot and the graphical session to fail.
 - **Wi-Fi drivers.** Some chipsets need firmware the ISO does not carry.
 - **The exact kernel command line.** Test builds set `SERIAL_CONSOLE=1`; a real
   install leaves it at `0`. A one-parameter difference, but a real one.
