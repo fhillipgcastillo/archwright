@@ -73,6 +73,31 @@ aw_state_get() {
   cat "$AW_TRACK_DIR/state/$key"
 }
 
+# Secure Boot state, read straight from the EFI variable.
+#
+#   0 = enabled    1 = disabled    2 = cannot tell
+#
+# This matters because Archwright's bootloader is unsigned: with Secure Boot on,
+# the machine installs fine and then refuses to boot, which is a miserable way
+# to find out. It is the single most likely real-hardware blocker, and it is
+# invisible in QEMU because OVMF ships with Secure Boot off.
+#
+# The efivars file carries a 4-byte attribute header before the value, hence
+# the offset. The path is a parameter so this is testable against a fixture
+# rather than only against the machine it happens to run on.
+aw_secureboot_state() {
+  local dir="${1:-/sys/firmware/efi/efivars}" f val
+  [ -d "$dir" ] || return 2
+  f="$(find "$dir" -maxdepth 1 -name 'SecureBoot-*' 2>/dev/null | head -1)"
+  [ -n "$f" ] || return 2
+  val="$(od -An -t u1 -j 4 -N 1 "$f" 2>/dev/null | tr -d '[:space:]')"
+  case "$val" in
+    1) return 0 ;;
+    0) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 # The partition number of a device node, read from sysfs rather than parsed
 # out of the name - naming differs between sd*, nvme*p* and mmcblk*p*.
 aw_partition_number_of() {

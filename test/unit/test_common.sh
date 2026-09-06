@@ -34,6 +34,44 @@ aw_track luks "cryptroot"
 assert_eq "$(aw_tracked partition | tr '\n' ',')" "/dev/vda1,/dev/vda2," "tracked partitions in order"
 assert_eq "$(aw_tracked luks)" "cryptroot" "tracked luks name"
 assert_eq "$(aw_tracked nothing)" "" "unknown kind is empty, not an error"
+
+# cross-phase state round-trips (each install.sh --phase is its own process)
+aw_state_set esp_dev "/dev/vda1"
+assert_eq "$(aw_state_get esp_dev)" "/dev/vda1" "state value round-trips"
+assert_fails aw_state_get no_such_key "a missing state key fails rather than returning empty"
 rm -rf "$AW_TRACK_DIR"
+
+# ---------------------------------------------------------------------------
+# Secure Boot detection
+#
+# The most likely real-hardware blocker, and invisible in QEMU because OVMF
+# ships with Secure Boot off. Tested against fixtures shaped like the real
+# efivars file: four attribute bytes, then the value byte.
+#
+# The four header bytes are deliberately printable ASCII - aw_secureboot_state
+# skips them without inspecting them, so their content is irrelevant, and this
+# keeps the test file out of binary territory.
+# ---------------------------------------------------------------------------
+sbdir="$(mktemp -d)"
+sbvar="$sbdir/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+
+printf 'HDR1' > "$sbvar"
+printf '\001' >> "$sbvar"
+aw_secureboot_state "$sbdir"
+assert_eq "$?" "0" "secure boot ON is detected"
+
+printf 'HDR1' > "$sbvar"
+printf '\000' >> "$sbvar"
+aw_secureboot_state "$sbdir"
+assert_eq "$?" "1" "secure boot OFF is detected"
+
+rm -f "$sbvar"
+aw_secureboot_state "$sbdir"
+assert_eq "$?" "2" "a missing EFI variable is 'unknown', never 'off'"
+
+aw_secureboot_state "$sbdir/does-not-exist"
+assert_eq "$?" "2" "a missing efivars directory is 'unknown'"
+
+rm -rf "$sbdir"
 
 finish_tests

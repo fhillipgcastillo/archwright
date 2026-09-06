@@ -15,6 +15,20 @@ aw_preflight() {
   [ -d /sys/firmware/efi ] \
     || aw_die "not booted in UEFI mode. Archwright is UEFI-only; reboot the installer in UEFI mode."
 
+  # Archwright's bootloader is unsigned. With Secure Boot on, the install
+  # succeeds and the machine then refuses to boot - a miserable way to find
+  # out, and one that never happens in QEMU because OVMF ships with it off.
+  # Captured with `|| sb=$?` rather than a bare call: install.sh runs under
+  # `set -e`, so a bare call returning non-zero aborts the phase before the
+  # case statement is ever reached.
+  local sb=0
+  aw_secureboot_state || sb=$?
+  case "$sb" in
+    0) aw_die "Secure Boot is enabled. Archwright's bootloader is unsigned, so the machine would install and then refuse to boot. Turn Secure Boot off in your firmware setup (usually under Security or Boot) and try again." ;;
+    1) aw_log info "Secure Boot is disabled" ;;
+    *) aw_log warn "could not determine the Secure Boot state. If the machine will not boot after install, check that Secure Boot is disabled in firmware." ;;
+  esac
+
   [ -b "$AW_DISK" ] || aw_die "target disk is not a block device: $AW_DISK"
 
   local type

@@ -581,3 +581,47 @@ Recorded so they are not mistaken for decisions.
 | **`fetch-shellcheck.ps1` does not verify a checksum** | Unlike `fetch-arch-iso.sh`, which checks sha256. Inconsistent |
 | **`libnotify` now unused** | See L13 |
 | **Windows host path unmaintained** | `test/vm-install.ps1` and `tools/fetch-qemu-windows.ps1` are not written or verified. See D13 |
+
+### L17 — `README.md` written: the real-hardware bootstrap
+Milestone 1 was verified end to end in QEMU while the route a real person takes
+was never written down or tested. The harness supplies for free everything that
+is hard on a laptop: networking, the repo arriving on the machine, well-behaved
+firmware, a predictable disk name. The README now covers writing the USB,
+booting UEFI, connecting Wi-Fi with `iwctl`, installing git (the ISO has none),
+finding the disk, writing an answer file, and what "done" looks like — plus an
+explicit "Honest limitations" section listing what QEMU does *not* prove.
+**Trigger:** the user pointing out that the project had started assuming QEMU is
+the environment rather than the proxy.
+
+### L18 — Preflight refuses to install when Secure Boot is on
+Archwright's bootloader is unsigned, so with Secure Boot enabled the install
+succeeds and the machine then refuses to boot. It is the most likely
+real-hardware blocker and is **invisible in the harness**, because OVMF ships
+with Secure Boot off — in QEMU the EFI variable does not exist at all, which is
+reported as "unknown" and warns rather than blocking. `aw_secureboot_state`
+takes the efivars path as a parameter so it is unit-tested against fixtures.
+**Trigger:** writing the README exposed a promise the code did not keep.
+
+### L19 — Stop generating shell code through Python heredocs
+Patching files with `python3 - <<'PY' ... p.write_text(...)` silently no-op'd or
+corrupted content five times: a function defined but its call site never wired,
+two literal `\n` sequences, a cp1252 decode error on a UTF-8 file, and finally
+`test_common.sh` rewritten with **real control bytes** where escape text was
+intended, turning a shell script into a binary file. Use the editor tools for
+anything containing escapes or non-ASCII, and assert on every replacement so a
+non-match fails loudly. **Trigger:** repeated self-inflicted corruption.
+
+## Real-hardware gaps carried out of milestone 1
+
+Distinct from the table above: these are things the QEMU harness cannot tell us
+about, listed so they are not mistaken for verified behaviour. Also summarised
+for users in `README.md` under "Honest limitations".
+
+| Gap | Detail |
+|---|---|
+| **No interactive mode** | `--answers <file>` is mandatory. A real person must hand-write an answer file at a TTY before anything runs. A prompt-driven mode, or generating a template with `--init-answers`, is the obvious fix |
+| **Only `/dev/vda` exercised** | The `nvme0n1p1` / `mmcblk0p1` naming logic is unit-tested but has never touched real hardware — and nearly every modern machine is NVMe |
+| **Firmware quirks untested** | OVMF is clean reference firmware. Real firmware may refuse the `efibootmgr` NVRAM entry. The installer warns and relies on the removable-media path, which is right, but unproven against anything odd |
+| **Wi-Fi firmware** | Some chipsets need firmware the ISO does not carry. Preflight reports "no network" without saying why |
+| **Tested cmdline differs from the shipped one** | The harness sets `SERIAL_CONSOLE=1`, adding `console=ttyS0`. A real install leaves it `0`, so the exact command line a user gets has never been booted |
+| **Both microcode packages always installed** | `amd-ucode` and `intel-ucode` both land, so the generated menu loads both. Harmless — the kernel ignores the wrong-vendor image — but not what a real install should look like |
