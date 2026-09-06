@@ -277,6 +277,10 @@ def start_qemu(disk, serial_port, iso_boot=True):
         "-serial", f"tcp:127.0.0.1:{serial_port},server=on,wait=off",
         "-display", "none",
     ]
+    extra = os.environ.get("AW_EXTRA_QEMU_ARGS", "").split()
+    if extra:
+        log(f"extra qemu args: {extra}")
+        args += extra
     if iso_boot:
         if not ISO.is_file():
             die(f"{ISO} missing: run tools/fetch-arch-iso.sh")
@@ -642,8 +646,42 @@ def phase_all():
             pass
 
 
+def phase_probe_gpu():
+    """Report what graphics hardware a guest actually sees in this harness.
+
+    Hyprland needs a DRM device with a connected output. Whether QEMU provides
+    one with -display none is the question that decides milestone 2's shape,
+    and it is cheaper to answer than to assume.
+    """
+    stack = []
+    try:
+        ser, _, _ = boot_live(stack)
+        for label, cmd in [
+            ("PCI display devices", "lspci | grep -i -E 'vga|display|gpu' || echo none"),
+            ("/dev/dri contents", "ls -l /dev/dri 2>&1 || echo none"),
+            ("loaded drm modules", "lsmod | grep -E '^(virtio_gpu|bochs|drm)' || echo none"),
+            ("DRM connectors", "for c in /sys/class/drm/*/status; do "
+                               "echo \"$c=$(cat $c)\"; done 2>/dev/null || echo none"),
+            ("card0 present", "test -e /dev/dri/card0 && echo CARD0-YES || echo CARD0-NO"),
+        ]:
+            _, out = ser.run(cmd, 60)
+            log(f"--- {label} ---")
+            for line in out.splitlines():
+                line = line.strip()
+                if line and not line.startswith(("root@", "#")):
+                    log(f"    {line}")
+        log("PASS: probe complete - read the output above")
+    finally:
+        for fn in reversed(stack):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
 PHASES = {
     "iso-smoke": phase_iso_smoke,
+    "probe-gpu": phase_probe_gpu,
     "preflight": phase_preflight,
     "disk": phase_disk,
     "base": phase_base,
