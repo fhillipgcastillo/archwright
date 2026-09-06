@@ -229,14 +229,14 @@ class Serial:
         head, tail = "AWDN", str(int(time.time() * 1000) % 1000000)
         marker = f"{head}{tail}:"
         self.send(f'{cmd}; echo "{head}""{tail}:$?"')
-        self.read_until(marker, timeout)
-        rest = self.read_until("\n", 30)
-        status = rest.strip()
-        # Output produced before the marker is what the caller wants.
+        # Everything up to the marker is the command's own output; the marker
+        # is followed by the exit status and a newline.
+        out = self.read_until(marker, timeout)
+        status = self.read_until("\n", 30).strip()
         try:
-            return int(status), self.buf
+            return int(status), out
         except ValueError:
-            return 1, rest
+            return 1, out
 
     def run_checked(self, cmd, timeout=600):
         rc, out = self.run(cmd, timeout)
@@ -421,9 +421,48 @@ def phase_preflight():
                 pass
 
 
+def check_guest(ser, checks, what):
+    for cmd, expect in checks:
+        rc, out = ser.run(cmd, 120)
+        if rc != 0 or expect not in out:
+            die(f"{what} check failed: {cmd!r} did not yield {expect!r} (status {rc})")
+        log(f"  ok: {expect}")
+
+
+def phase_disk():
+    stack = []
+    try:
+        ser, _, _ = boot_live(stack)
+        for phase in ("preflight", "disk"):
+            rc, _ = run_installer(ser, phase, 900)
+            if rc != 0:
+                die(f"phase {phase} failed with status {rc}")
+
+        check_guest(ser, [
+            ("findmnt -no FSTYPE /mnt", "btrfs"),
+            ("findmnt -no OPTIONS /mnt | tr ',' '\\n' | grep '^subvol=/@$'", "subvol=/@"),
+            ("findmnt -no FSTYPE /mnt/boot", "vfat"),
+            ("findmnt -no TARGET /mnt/home", "/mnt/home"),
+            ("findmnt -no TARGET /mnt/.snapshots", "/mnt/.snapshots"),
+            ("findmnt -no TARGET /mnt/var/log", "/mnt/var/log"),
+            ("cryptsetup status cryptroot | head -1", "is active"),
+            ("cryptsetup luksDump /dev/vda2 | awk '/^Version:/{print $2}'", "2"),
+            ("parted -ms /dev/vda print | awk -F: 'NR==2{print $6}'", "gpt"),
+            ("parted -ms /dev/vda print | grep -c '^[0-9]*:'", "2"),
+        ], "disk")
+        log("PASS: GPT + ESP + LUKS2 + btrfs subvolumes are correct")
+    finally:
+        for fn in reversed(stack):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
 PHASES = {
     "iso-smoke": phase_iso_smoke,
     "preflight": phase_preflight,
+    "disk": phase_disk,
 }
 
 
