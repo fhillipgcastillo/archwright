@@ -15,7 +15,7 @@ if [ -z "$SHELLCHECK" ]; then
   fi
 fi
 
-mapfile -t files < <(git ls-files '*.sh')
+mapfile -t files < <(git ls-files -co --exclude-standard '*.sh')
 [ "${#files[@]}" -gt 0 ] || { echo "no shell scripts tracked yet" >&2; exit 0; }
 
 "$SHELLCHECK" -x -P .:lib:test:test/unit "${files[@]}"

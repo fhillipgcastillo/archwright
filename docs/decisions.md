@@ -310,20 +310,49 @@ is easy to omit and produces confusing false passes when omitted.
 
 ---
 
-## D13 — Windows host support for the oracle
+## D13 — WSL2 runs the oracle
 
-**Chosen.** `tools/fetch-qemu-windows.ps1` pulls a portable QEMU build and OVMF
-firmware into `.tools/` inside the repo — nothing installed system-wide, nothing
-added to `PATH`, deleting the folder undoes it. `test/vm-install.ps1` runs the
-same flow. WSL2 is documented as a fallback only.
+**Superseded an earlier draft.** The first version of this entry committed to a
+portable QEMU-for-Windows build unpacked into `.tools/`. That was written up as a
+decision when it had only been raised as an idea to explore, and exploring it
+showed two things: the common Windows QEMU distribution is an NSIS installer
+rather than a portable archive, so "unzip it" needed an extra extraction step;
+and the machine already had a better option.
 
-**Rejected.** Requiring a system-wide QEMU install. WSL2 as the primary path.
+**Chosen.** QEMU runs inside **WSL2 Ubuntu** (`qemu-system-x86`, `qemu-utils`,
+`ovmf`, `libarchive-tools`), driven by `test/vm-install.sh`. Verified on this
+machine: `/dev/kvm` is present and read/write, the CPU exposes `vmx`, and QEMU
+8.2.2 initialises with `accel=kvm`.
 
-**Why.** The author develops on Windows and does not have QEMU installed. A
-portable, self-contained toolchain inside the repo means testing costs one script
-run rather than a system change, and it is trivially reversible. WSL2 needs
-nested virtualization enabled or the VM runs unaccelerated and impractically
-slow — acceptable as a fallback, wrong as a default.
+**Rejected.**
+- *Portable QEMU in `.tools/`* — see above.
+- *`winget install QEMU` on Windows* — works, and Hyper-V is already enabled so
+  WHPX acceleration would be available, but WHPX is slower than KVM and it
+  installs software system-wide for no gain here.
+
+**Why.** It is the fastest option available on this machine, it changes nothing
+in the Windows install, and it exercises `test/vm-install.sh` — the Linux path
+that anyone cloning the repo will actually use. Testing the path most users take
+is worth more than testing the author's host OS.
+
+**Consequences.**
+
+- **Large artifacts live outside the repo.** The repo sits on a Windows drive at
+  `/mnt/e/...`, where I/O crosses the WSL filesystem boundary. A 1.3GB ISO and a
+  qcow2 disk image are slow there, so the ISO, extracted boot files and
+  throwaway VM disks live in `$ARCHWRIGHT_CACHE` (default `~/.cache/archwright`)
+  on the native filesystem. Only the repo itself is read across the boundary.
+- **OVMF filenames are probed, not assumed.** Ubuntu 24.04 ships
+  `OVMF_CODE_4M.fd`; Arch and older Debian ship `OVMF_CODE.fd`. `tools/env.sh`
+  searches a list and deliberately skips the `secboot` and `ms` variants, which
+  refuse to boot an unsigned kernel and fail as a blank screen rather than an
+  error.
+- **`.gitattributes` pins LF** on shell, Python and data files. They are authored
+  on Windows and executed in Linux; CRLF fails in ways that do not name the
+  cause.
+- **`test/vm-install.ps1` is out of scope for milestone 1.** The Windows host
+  path is not being maintained or verified for now. Reinstating it is a small
+  piece of work — `tools/env.sh` is the only place that resolves host paths.
 
 **Guide consequence.** The guide's main body assumes bare metal on any UEFI
 machine and makes no host-OS assumptions. Host-specific material lives in a

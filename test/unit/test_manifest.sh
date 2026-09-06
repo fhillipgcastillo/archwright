@@ -39,12 +39,62 @@ assert_eq "$third" "compress=zstd:1,noatime" "subvolumes: third field is mount o
 
 assert_fails aw_manifest_packages "$tmp/does-not-exist" "missing manifest fails loudly"
 
-# The real shipped manifests must parse and be non-empty.
-n="$(aw_manifest_packages "$ROOT/manifest/core.packages" | wc -l | tr -d ' ')"
-if [ "$n" -gt 10 ]; then _pass; else _fail "core.packages" "expected >10 packages, got $n"; fi
+# ---------------------------------------------------------------------------
+# The real shipped manifests: assert STRUCTURE and CONTENT, never row counts.
+#
+# Adversarial review demonstrated that a row-count assertion is worthless in
+# both directions: it breaks when someone legitimately adds a subvolume, and
+# it stays green when the file is corrupted (tabs replaced by spaces, or every
+# package name replaced with junk).
+# ---------------------------------------------------------------------------
 
-n="$(aw_manifest_subvolumes "$ROOT/manifest/subvolumes.tsv" | wc -l | tr -d ' ')"
-assert_eq "$n" "5" "shipped subvolumes.tsv has 5 rows"
+pkgs="$(aw_manifest_packages "$ROOT/manifest/core.packages")"
+for required in base linux linux-firmware btrfs-progs snapper limine efibootmgr                 mkinitcpio networkmanager sudo; do
+  if printf '%s
+' "$pkgs" | grep -qx "$required"; then _pass
+  else _fail "core.packages" "required package missing: $required"; fi
+done
+
+# No entry may contain whitespace - that would mean a comment or header leaked
+# through and pacstrap would be handed a bogus argument.
+if printf '%s
+' "$pkgs" | grep -q '[[:space:]]'; then
+  _fail "core.packages" "an entry contains whitespace; parsing leaked a comment or header"
+else _pass; fi
+
+# No entry may start with '#'.
+if printf '%s
+' "$pkgs" | grep -q '^#'; then
+  _fail "core.packages" "a comment leaked through as a package"
+else _pass; fi
+
+subs="$(aw_manifest_subvolumes "$ROOT/manifest/subvolumes.tsv")"
+
+# Every row must be exactly three TAB-separated fields. Spaces instead of tabs
+# is the corruption that silently breaks the mount tree.
+if printf '%s
+' "$subs" | awk -F'	' 'NF != 3 { exit 1 }'; then _pass
+else _fail "subvolumes.tsv" "a row does not have exactly 3 tab-separated fields"; fi
+
+# The root subvolume must exist and must be named '@' - lib/10-disk.sh mounts
+# the row whose mountpoint is '/' first, and everything else nests under it.
+root_subvol="$(printf '%s
+' "$subs" | awk -F'	' '$2 == "/" { print $1 }')"
+assert_eq "$root_subvol" "@" "subvolumes.tsv defines exactly one root subvolume named @"
+
+# Snapshots need their own subvolume or snapper rollback cannot work.
+snap="$(printf '%s
+' "$subs" | awk -F'	' '$2 == "/.snapshots" { print $1 }')"
+assert_eq "$snap" "@snapshots" "subvolumes.tsv mounts @snapshots at /.snapshots"
+
+# Every mountpoint must be absolute and unique.
+if printf '%s
+' "$subs" | awk -F'	' '$2 !~ /^\// { exit 1 }'; then _pass
+else _fail "subvolumes.tsv" "a mountpoint is not absolute"; fi
+
+dupes="$(printf '%s
+' "$subs" | cut -f2 | sort | uniq -d)"
+assert_eq "$dupes" "" "subvolumes.tsv has no duplicate mountpoints"
 
 rm -rf "$tmp"
 finish_tests

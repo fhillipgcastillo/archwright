@@ -59,15 +59,28 @@ Stack: POSIX `bash` installer scripts targeting Arch Linux, plus a PowerShell
 helper for Windows-hosted VM testing. No build step, no package manager, no
 compiled artifacts.
 
+**Where things run.** The repo lives on a Windows drive; the VM oracle runs in
+**WSL2 Ubuntu** (see D13). Unit tests and lint run fine on either. Anything
+involving QEMU must be invoked inside WSL:
+
+```
+wsl -d Ubuntu -e bash -c 'cd /mnt/e/data/dev/archwright && bash test/vm-install.sh --phase all'
+```
+
+Large artifacts (ISO, extracted kernel, VM disks) live in `$ARCHWRIGHT_CACHE`
+(default `~/.cache/archwright`) on the WSL native filesystem, **not** in the
+repo — `/mnt` I/O is too slow for them.
+
 | Job | Command | Notes |
 |---|---|---|
-| **Test** (primary oracle) | `bash test/vm-install.sh` | Full end-to-end: QEMU + OVMF UEFI, blank qcow2, stock Arch ISO, unattended install from `test/answers.example.conf`, reboot, assert LUKS prompt → boot → Hyprland session → snapper snapshot → Limine snapshot entry. Each run uses a throwaway overlay with its own firmware vars |
-| **Test** (Windows host) | `pwsh test/vm-install.ps1` | Same flow. Requires `pwsh tools/fetch-qemu-windows.ps1` once, which puts portable QEMU + OVMF in `.tools/` |
-| **Lint** | `shellcheck install.sh lib/*.sh hardware/*.sh test/*.sh` | Must be clean. No `# shellcheck disable` without an inline reason |
+| **Unit tests** | `bash test/run-unit.sh` | Fast, no VM. Covers `lib/common.sh`, `lib/manifest.sh`, `lib/answers.sh`, `lib/partition.sh` |
+| **Lint** | `bash test/lint.sh` | The single source of truth for the shellcheck invocation — runs `shellcheck -x` over every tracked `*.sh`. Must be clean. No `# shellcheck disable` without an inline reason on the line above |
+| **Test** (primary oracle) | `bash test/vm-install.sh --phase all` | Full end-to-end in QEMU: OVMF UEFI, blank qcow2, stock Arch ISO, unattended install from `test/vm/answers.example.conf`, reboot, then assert the milestone gate. Each run gets a throwaway disk and its own copy of the firmware vars |
+| **Run a single phase** | `bash test/vm-install.sh --phase <name>` | `iso-smoke`, `preflight`, `disk`, `base`, `all`. Far faster than the full run while iterating |
 | **Typecheck** | *n/a* | Shell project |
 | **Build** | *n/a* | No build step |
-| **Docs check** | `bash test/check-guide-drift.sh` | Verifies the guide's package and hotkey tables match `manifest/`. Non-zero exit on mismatch |
-| **Run a single flow** | `bash test/vm-install.sh --phase <n>` | Runs the installer up to milestone *n* and asserts that milestone's gate only. Faster iteration than the full run |
+| **Docs check** | `bash test/check-guide-drift.sh` | Verifies the guide's package and hotkey tables match `manifest/`. Not written until milestone 7 — there is no guide to check against before then |
+| **One-time setup** | `tools/fetch-arch-iso.sh`, `tools/extract-iso-boot.sh` | Populate the cache. `test/vm-install.sh` calls them if the cache is empty |
 
 **Oracle by change type:**
 

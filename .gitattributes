@@ -1,0 +1,13 @@
+# Shell scripts and the Python VM driver run inside Linux guests and inside
+# WSL2. CRLF breaks them with errors that do not name the real cause, so pin
+# LF regardless of the cloner's core.autocrlf setting.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.tsv   text eol=lf
+*.conf  text eol=lf
+*.packages text eol=lf
+install.sh text eol=lf
+archwright  text eol=lf
+
+# PowerShell tooling stays native to Windows.
+*.ps1   text eol=crlf
