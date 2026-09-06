@@ -108,5 +108,23 @@ assert_fails aw_answers_validate "serial console must be 0 or 1"
 mkbase 'TIMEZONE=America/New_York'
 if aw_answers_validate 2>/dev/null; then _pass; else _fail "valid tz" "America/New_York should validate"; fi
 
+
+# AUTOLOGIN: a real supported option (single-user laptops), which the test
+# harness also relies on because it cannot type into tuigreet on VT1.
+aw_answers_load "$ROOT/test/vm/answers.example.conf"
+assert_eq "$AW_AUTOLOGIN" "1" "autologin parsed from the example answers"
+
+printf 'DISK=/dev/vda
+HOSTNAME=box
+USERNAME=u
+USER_PASSWORD=p
+LUKS_PASSPHRASE=l
+' > "$tmp/noauto.conf"
+aw_answers_load "$tmp/noauto.conf"
+assert_eq "$AW_AUTOLOGIN" "0" "autologin defaults to off"
+
+mkbase 'AUTOLOGIN=yes'
+assert_fails aw_answers_validate "autologin must be 0 or 1"
+
 rm -rf "$tmp"
 finish_tests

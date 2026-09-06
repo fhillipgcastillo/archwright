@@ -21,6 +21,7 @@ aw_answers_reset() {
   AW_TIMEZONE="UTC"
   AW_KEYMAP="us"
   AW_SERIAL_CONSOLE="0"
+  AW_AUTOLOGIN="0"
 }
 aw_answers_reset
 
@@ -74,6 +75,7 @@ aw_answers_load() {
       TIMEZONE)        AW_TIMEZONE="$value" ;;
       KEYMAP)          AW_KEYMAP="$value" ;;
       SERIAL_CONSOLE)  AW_SERIAL_CONSOLE="$value" ;;
+      AUTOLOGIN)       AW_AUTOLOGIN="$value" ;;
       *) aw_log warn "unknown answer key ignored: $key" ;;
     esac
   done < "$file"
@@ -117,6 +119,9 @@ aw_answers_validate() {
     'a console keymap name such as us' || ok=1
 
   _aw_check SERIAL_CONSOLE "$AW_SERIAL_CONSOLE" '^[01]$' \
+    '0 or 1' || ok=1
+
+  _aw_check AUTOLOGIN "$AW_AUTOLOGIN" '^[01]$' \
     '0 or 1' || ok=1
 
   # Secrets reach the target on stdin only, so their content is unconstrained.
