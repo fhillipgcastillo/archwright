@@ -33,7 +33,39 @@ installer — but D9 exists to prevent exactly that.
 ## D2 — Base layer: LUKS2 + btrfs + snapper + Limine
 
 **Chosen.** The full storage stack: GPT/ESP, LUKS2 container, btrfs subvolumes
-(`@ @home @snapshots @log @pkg`), UKI, Limine, snapper with snapshots on update.
+(`@ @home @snapshots @log @pkg`), Limine, snapper with snapshots on update.
+
+**Amended 2026-09-06 during implementation: no Unified Kernel Image.** The
+original entry specified a UKI, following the researched design. Building
+milestone 1 showed why that does not work without a package repository:
+
+- Snapshot boot entries are the entire reason Limine was chosen. Limine cannot
+  read inside the LUKS container, so every boot artifact must sit on the
+  unencrypted ESP, and booting a snapshot means a different
+  `rootflags=subvol=` on the kernel command line.
+- **A UKI bakes its command line into the binary**, so each snapshot would need
+  its own UKI. Generating those is what `limine-entry-tool` exists to do.
+- That tool, `limine-mkinitcpio-hook` and `limine-snapper-sync` are one Java
+  project. All three declare `gradle` as a makedepend, none is in an official
+  Arch repository, and none has a `-bin` variant. Building them at install time
+  means a ~330MB GraalVM download plus a native-image compile inside a
+  RAM-backed live filesystem — verified by attempting it, which failed on the
+  missing `gradle`.
+
+So Archwright installs a plain kernel and initramfs on the ESP. The command
+line then becomes per-entry text in `limine.conf`, and
+`bin/archwright-limine-update` generates the whole menu — default entry plus
+one per snapper snapshot — in about 100 lines of shell with no build
+dependencies.
+
+**Known cost.** No UKI means no single signed blob, so Secure Boot support is
+meaningfully harder if it is ever wanted. Accepted: milestone 1 does not do
+Secure Boot, and the alternative was an unshippable install.
+
+**Rejected alternatives at the time of the amendment:** keep the UKI and defer
+snapshot entries entirely (drops the one feature Limine was chosen for); build
+the Java tooling anyway (unshippable); reopen the bootloader choice (a larger
+change than the problem warranted).
 
 **Rejected.**
 - *Simple*: GPT + ESP + ext4, systemd-boot, no encryption. Easiest to write and

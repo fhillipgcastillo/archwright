@@ -81,9 +81,9 @@ Entries marked ⚙️ are single-line changes in `manifest/`.
 | Firmware | UEFI + GPT only | No BIOS/MBR path |
 | Disk encryption | LUKS2 container | |
 | Filesystem | btrfs, subvolumes `@ @home @snapshots @log @pkg` | |
-| Bootloader | Limine + UKI | The only bootloader in scope that renders a snapshot boot menu |
-| Snapshots | snapper; `snapper-timeline.timer` **disabled**, `snapper-cleanup.timer` + `limine-snapper-sync.service` **enabled** | Snapshots on update, not on a clock |
-| Initramfs | mkinitcpio → UKI, Plymouth | |
+| Bootloader | Limine, plain kernel + initramfs (**no UKI** — amended, see D2) | Only bootloader in scope that renders a snapshot boot menu |
+| Snapshots | snapper; `snapper-timeline.timer` **disabled**, `snapper-cleanup.timer` **enabled**; boot entries by `bin/archwright-limine-update` | Snapshots on update, not on a clock. `limine-snapper-sync` is unbuildable at install time — see D2 |
+| Initramfs | mkinitcpio → `/boot/initramfs-linux.img` on the ESP | A UKI bakes its cmdline in, making per-snapshot entries impossible without one UKI each |
 | Login | ⚙️ greetd + tuigreet | One config file, no Qt/GTK dependency chain |
 | Session | uwsm → Hyprland | |
 | Compositor | Hyprland | |
@@ -124,13 +124,15 @@ research-extract §3 and §4.
 ```
 archwright/
 ├── install.sh                  Entry point. Run from the stock Arch ISO
+├── bin/
+│   └── archwright-limine-update  Generates limine.conf, one entry per snapshot
 ├── archwright                  The installed CLI (copied to /usr/bin)
 ├── lib/
 │   ├── common.sh               Logging, chroot helper, assertions, rollback tracking
 │   ├── 00-preflight.sh         UEFI check, network, clock sync, disk selection
 │   ├── 10-disk.sh              GPT, ESP, LUKS2, btrfs subvolumes
 │   ├── 20-base.sh              pacstrap from manifest/core.packages
-│   ├── 30-boot.sh              mkinitcpio UKI, Limine, snapper, Plymouth
+│   ├── 30-boot.sh              mkinitcpio, Limine, snapper, boot menu
 │   ├── 40-desktop.sh           Hyprland, greetd, shell layer + units
 │   ├── 50-apps.sh              Core apps, then selected extras
 │   ├── 60-ai.sh                Agent stubs, skill symlinks, sudo window, local model
@@ -146,12 +148,16 @@ archwright/
 │   └── themed/                 Theme templates (§8)
 ├── hardware/                   One self-detecting script per quirk
 ├── test/
-│   ├── vm-install.sh           QEMU UEFI end-to-end (Linux host) — primary oracle
-│   ├── vm-install.ps1          Same flow, Windows host
-│   ├── answers.example.conf    Unattended answer file for test runs
-│   └── check-guide-drift.sh    Guide tables vs manifest/
+│   ├── vm-install.sh           QEMU UEFI end-to-end — the primary oracle
+│   ├── run-unit.sh             Fast unit suite, no VM
+│   ├── lint.sh                 The single shellcheck invocation
+│   ├── unit/                   harness.sh + test_*.sh
+│   ├── vm/                     drive_vm.py, assertions.sh, answers.example.conf
+│   └── check-guide-drift.sh    Guide tables vs manifest/ (milestone 7)
 ├── tools/
-│   └── fetch-qemu-windows.ps1  Portable QEMU + OVMF into .tools/, nothing system-wide
+│   ├── env.sh                  Resolves qemu, OVMF, cache paths
+│   ├── fetch-arch-iso.sh       Download + checksum the official ISO
+│   └── extract-iso-boot.sh     Kernel + initramfs out of the ISO
 ├── docs/
 └── README.md
 ```
@@ -297,7 +303,7 @@ Deliberately minimal, and structured to grow one fix at a time.
   suspend/resume and audio — the three that cover most of the pain.
 - Re-runnable after install via `archwright hardware`.
 - **Mask the mkinitcpio install hook during the hardware phase.** Otherwise every
-  firmware and DKMS package triggers a full initramfs + UKI rebuild for every
+  firmware and DKMS package triggers a full initramfs rebuild for every
   installed kernel, all of it discarded by the final unconditional rebuild.
 
 ---
@@ -385,10 +391,10 @@ QEMU with OVMF UEFI firmware and a blank qcow2. Boots the stock Arch ISO, runs
 
 - **Linux host:** `qemu-system-x86_64` + `edk2-ovmf` from the distro's package
   manager. `test/vm-install.sh`.
-- **Windows host:** `tools/fetch-qemu-windows.ps1` downloads a portable QEMU
-  build and OVMF firmware into `.tools/` inside the repo — nothing installed
-  system-wide, nothing added to `PATH`, deleting the folder undoes it.
-  `test/vm-install.ps1` then runs the same flow.
+- **Windows host:** not maintained for milestone 1. The repo lives on a Windows
+  drive but the oracle runs in **WSL2**, where `/dev/kvm` is available — see the
+  amended D13. `tools/env.sh` is the only place that resolves host paths, so
+  reinstating a native Windows path later is a small change.
 - **WSL2:** documented as a fallback only. Nested virtualization must be enabled
   or the VM runs unaccelerated and is impractically slow.
 
@@ -426,7 +432,7 @@ Structure mirrors the build order:
 2. Preparing the install medium
 3. Disk: GPT, ESP, LUKS2, btrfs subvolumes
 4. Base system and `pacstrap`
-5. Boot: mkinitcpio UKI, Limine, snapper, Plymouth
+5. Boot: mkinitcpio, Limine, snapper, generated boot menu
 6. Session: greetd, uwsm, Hyprland
 7. The shell layer
 8. Applications — core, then optional extras
@@ -461,6 +467,12 @@ what an `archiso` profile would consume if the ISO path is ever taken up.
 ---
 
 ## 17. Open items
+
+**Amended after milestone 1 was built and verified (2026-09-06):** the boot
+layer no longer uses a Unified Kernel Image. See D2 in `docs/decisions.md` for
+the finding that forced the change and what it costs.
+`bin/archwright-limine-update` now generates the boot menu, including one entry
+per snapper snapshot.
 
 None blocking. Deferred decisions are recorded in §2 as out of scope.
 
