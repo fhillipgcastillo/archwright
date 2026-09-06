@@ -1,0 +1,44 @@
+# Archwright core packages, milestone 1 (base system only, no desktop).
+# One package per line. '#' starts a comment. '## Group:' headers are
+# parsed by the guide drift check and ignored by the installer.
+
+## Group: base
+base
+base-devel
+linux
+linux-firmware
+linux-headers
+
+## Group: microcode
+amd-ucode
+intel-ucode
+
+## Group: filesystem
+btrfs-progs
+dosfstools
+exfatprogs
+snapper
+
+## Group: boot
+efibootmgr
+limine
+mkinitcpio
+plymouth
+
+## Group: network
+networkmanager
+openssh
+
+## Group: cli-staples
+bash-completion
+git
+less
+man-db
+nano
+ripgrep
+sudo
+vim
+
+## Group: hardware
+sof-firmware
+zram-generator

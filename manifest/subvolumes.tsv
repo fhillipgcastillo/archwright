@@ -1,0 +1,7 @@
+# subvolume	mountpoint	mount options
+# Tab-separated. '#' starts a comment. Order matters: parents mount first.
+@	/	compress=zstd:1,noatime
+@home	/home	compress=zstd:1,noatime
+@snapshots	/.snapshots	compress=zstd:1,noatime
+@log	/var/log	compress=zstd:1,noatime
+@pkg	/var/cache/pacman/pkg	noatime
