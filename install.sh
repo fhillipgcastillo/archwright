@@ -21,6 +21,8 @@ export LC_ALL=C
 . "$AW_ROOT/lib/manifest.sh"
 # shellcheck source=lib/partition.sh
 . "$AW_ROOT/lib/partition.sh"
+# shellcheck source=lib/config.sh
+. "$AW_ROOT/lib/config.sh"
 
 ANSWERS=""
 ONLY_PHASE=""
