@@ -275,6 +275,15 @@ def start_qemu(disk, serial_port, iso_boot=True):
         "-drive", f"file={disk},if=virtio,format=qcow2",
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
         "-serial", f"tcp:127.0.0.1:{serial_port},server=on,wait=off",
+        # A real single-GPU machine: one virtio GPU, one connected connector,
+        # and a render node. Probing (commit 652103e) showed QEMU's default
+        # bochs display gives a card and a connected connector but NO render
+        # node, which is what EGL/GBM needs - so Hyprland would have silently
+        # fallen back to software rendering and the harness would have been
+        # testing a path no real machine takes. -vga none removes the default
+        # VGA so there is exactly one card.
+        "-vga", "none",
+        "-device", "virtio-gpu-pci",
         "-display", "none",
     ]
     extra = os.environ.get("AW_EXTRA_QEMU_ARGS", "").split()
