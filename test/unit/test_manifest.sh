@@ -97,4 +97,13 @@ dupes="$(printf '%s
 assert_eq "$dupes" "" "subvolumes.tsv has no duplicate mountpoints"
 
 rm -rf "$tmp"
+
+# Milestone 2: the session stack must be present in core, because the base
+# phase pacstraps core and nothing else installs packages.
+for required in hyprland uwsm greetd greetd-tuigreet xdg-desktop-portal-hyprland                 pipewire wireplumber polkit mesa foot; do
+  if printf '%s
+' "$pkgs" | grep -qx "$required"; then _pass
+  else _fail "core.packages" "session package missing: $required"; fi
+done
+
 finish_tests

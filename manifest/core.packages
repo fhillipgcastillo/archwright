@@ -44,3 +44,29 @@ vim
 ## Group: hardware
 sof-firmware
 zram-generator
+
+## Group: session
+hyprland
+uwsm
+xorg-xwayland
+greetd
+greetd-tuigreet
+polkit
+mesa
+
+## Group: portals
+xdg-desktop-portal
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+
+## Group: audio
+pipewire
+pipewire-alsa
+pipewire-pulse
+wireplumber
+
+## Group: terminal
+foot
+
+## Group: fonts
+ttf-jetbrains-mono-nerd
