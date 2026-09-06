@@ -33,7 +33,7 @@ usage() {
 Usage: install.sh --answers <file> [--phase <name>] [--yes]
 
   --answers <file>  Unattended answer file (required).
-  --phase <name>    Run a single phase: preflight, disk, base, boot.
+  --phase <name>    Run a single phase: preflight, disk, base, boot, session.
                     Default: all of them, in order.
   --yes             Do not prompt before erasing the target disk.
 
@@ -54,8 +54,8 @@ done
 [ -n "$ANSWERS" ] || { usage >&2; aw_die "--answers is required"; }
 
 case "$ONLY_PHASE" in
-  ''|preflight|disk|base|boot) ;;
-  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base or boot)" ;;
+  ''|preflight|disk|base|boot|session) ;;
+  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base, boot or session)" ;;
 esac
 
 aw_answers_load "$ANSWERS"
@@ -77,5 +77,6 @@ run_phase preflight 00-preflight.sh
 run_phase disk      10-disk.sh
 run_phase base      20-base.sh
 run_phase boot      30-boot.sh
+run_phase session   40-session.sh
 
 aw_log info "installation complete"

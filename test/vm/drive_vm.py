@@ -36,6 +36,11 @@ ISO = CACHE / "archlinux.iso"
 BOOT = CACHE / "boot"
 VMRUN = CACHE / "vmrun"
 
+# Not shipped into the guest: documentation and local build artifacts. Anything
+# else in the repo root goes, so a new directory the installer reads does not
+# need this file edited to reach the VM.
+SERVE_EXCLUDE = {"docs", "__pycache__"}
+
 # The guest prompt is colourised, so on the wire 'root' and '@archiso' are
 # separated by escape sequences and a literal match for "root@archiso" never
 # succeeds. Matching therefore runs against an ANSI-stripped copy of the
@@ -114,11 +119,15 @@ def serve_repo():
     """Pack the working tree and serve it. Returns (port, httpd)."""
     VMRUN.mkdir(parents=True, exist_ok=True)
     tar_path = VMRUN / "repo.tar"
+    # Pack everything except the excluded set, rather than an allowlist of
+    # directories. An allowlist silently omitted bin/ once (L15) and config/
+    # once, each time producing a failure several layers away from the cause.
+    # Adding a new top-level directory should not require remembering this.
     with tarfile.open(tar_path, "w") as tar:
-        for name in ("install.sh", "lib", "manifest", "test", "bin"):
-            src = REPO / name
-            if src.exists():
-                tar.add(src, arcname=name)
+        for entry in sorted(REPO.iterdir()):
+            if entry.name.startswith(".") or entry.name in SERVE_EXCLUDE:
+                continue
+            tar.add(entry, arcname=entry.name)
     # Also served standalone: the installed system fetches this directly
     # rather than unpacking the whole tree just to run one script.
     shutil.copy(REPO / "test" / "vm" / "assertions.sh", VMRUN / "assertions.sh")
@@ -539,7 +548,8 @@ def phase_boot():
     try:
         ser, _, _ = boot_live(stack)
         for phase, timeout in (("preflight", 300), ("disk", 900),
-                               ("base", 2400), ("boot", 2400)):
+                               ("base", 2400), ("boot", 2400),
+                               ("session", 1200)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"phase {phase} failed with status {rc}")
@@ -563,6 +573,19 @@ def phase_boot():
             # the host it resolves against the host root and looks broken even
             # when it is correct in the target.
             ("arch-chroot /mnt test -x /usr/bin/archwright-limine-update && echo CLI-OK", "CLI-OK"),
+            # --- session phase ---
+            ("arch-chroot /mnt systemctl is-enabled greetd.service", "enabled"),
+            ("grep -c 'tuigreet' /mnt/etc/greetd/config.toml", "1"),
+            ("grep -c 'initial_session' /mnt/etc/greetd/config.toml", "1"),
+            ("test -f /mnt/usr/share/wayland-sessions/hyprland.desktop && echo SESSDESK-OK",
+             "SESSDESK-OK"),
+            ("test -f /mnt/home/test/.config/hypr/hyprland.conf && echo HYPRCFG-OK",
+             "HYPRCFG-OK"),
+            ("test -f /mnt/home/test/.config/foot/foot.ini && echo FOOTCFG-OK",
+             "FOOTCFG-OK"),
+            ("test -f /mnt/usr/share/archwright/default-config/hypr/hyprland.conf"
+             " && echo DEFAULTS-OK", "DEFAULTS-OK"),
+            ("stat -c %U /mnt/home/test/.config/hypr/hyprland.conf", "test"),
         ], "boot")
         log("PASS: bootloader, initramfs and snapper are configured in the target")
     finally:
@@ -587,7 +610,8 @@ def phase_all():
         wait_for_live_shell(ser)
         guest_fetch_repo(ser, port)
         for phase, timeout in (("preflight", 300), ("disk", 900),
-                               ("base", 2400), ("boot", 2400)):
+                               ("base", 2400), ("boot", 2400),
+                               ("session", 1200)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"install phase {phase} failed with status {rc}")
