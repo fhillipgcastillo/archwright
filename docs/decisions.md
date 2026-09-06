@@ -80,8 +80,10 @@ property. Making it a runtime choice roughly doubles the testing surface for a
 v1 that has no users yet.
 
 **Consequence — Limine is non-negotiable.** Snapshot rollback is unavailable on
-GRUB and systemd-boot; `limine-snapper-sync` is what keeps the boot menu in step
-with snapper. This one requirement rules out the `archinstall` JSON path in D4.
+GRUB and systemd-boot. Keeping the boot menu in step with snapper is done by
+`bin/archwright-limine-update` (see the amendment above), not by
+`limine-snapper-sync` as originally planned. This one requirement rules out the
+`archinstall` JSON path in D4.
 
 **Would change if.** A target machine's firmware turns out to be hostile to
 Limine. The fallback is the *Middle* option plus a documented manual rollback,
