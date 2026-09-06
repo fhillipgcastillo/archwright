@@ -43,6 +43,89 @@ check "sshd is NOT enabled"         sh -c '! systemctl is-enabled sshd.service 2
 check "sshd is NOT listening"       sh -c '! ss -Hltn "sport = :22" | grep -q .'
 check "archwright tree installed"   test -f /usr/share/archwright/VERSION
 
+# --- Milestone 2: the session stack -----------------------------------------
+#
+# Hyprland runs in the USER's session, not this one, so these look at it from
+# the outside: the process, its socket, and hyprctl pointed at the right
+# runtime directory.
+AW_USER="${SUDO_USER:-$USER}"
+AW_UID="$(id -u "$AW_USER" 2>/dev/null || echo 1000)"
+AW_XDG="/run/user/$AW_UID"
+
+# hyprctl needs HYPRLAND_INSTANCE_SIGNATURE to find the compositor; without it
+# it has no idea which socket to talk to, and fails in a way that looks exactly
+# like "the session did not start". The signature is the directory name under
+# $XDG_RUNTIME_DIR/hypr, newest first.
+hyprctl_user() {
+  local sig
+  sig="$(find "$AW_XDG/hypr" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' \
+           2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+  if [ -z "$sig" ]; then
+    echo "no Hyprland instance under $AW_XDG/hypr" >&2
+    ls -la "$AW_XDG" >&2 2>/dev/null
+    return 1
+  fi
+  runuser -u "$AW_USER" -- \
+    env XDG_RUNTIME_DIR="$AW_XDG" HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl "$@"
+}
+
+# A bounded wait, not a fixed sleep: the session starts in parallel with our
+# login, so how long it takes varies with disk and CPU. Waiting for the actual
+# condition is faster when it is ready and more informative when it is not.
+wait_for_session() {
+  local i=0
+  while [ "$i" -lt 90 ]; do
+    if pgrep -x Hyprland >/dev/null 2>&1 \
+       && ls "$AW_XDG"/wayland-* >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+if wait_for_session; then
+  printf 'ok    the Hyprland session came up\n'
+else
+  printf 'FAIL  the Hyprland session came up\n'
+  printf '      --- greetd journal ---\n'
+  journalctl -u greetd --no-pager -n 40 2>/dev/null | sed 's/^/      /'
+  fails=$((fails + 1))
+fi
+
+check "greetd is enabled"           sh -c 'systemctl is-enabled greetd.service | grep -qx enabled'
+check "greetd is active"            systemctl is-active --quiet greetd.service
+check "greetd offers tuigreet"      sh -c 'grep -q tuigreet /etc/greetd/config.toml'
+check "Hyprland is running"         pgrep -x Hyprland
+# These are functions rather than `sh -c '...'` strings on purpose: a child
+# shell would see neither AW_XDG (never exported) nor hyprctl_user (a shell
+# function), so those checks would have failed for the wrong reason entirely.
+# `check` runs its arguments in THIS shell, where both exist.
+have_wayland_socket() { ls "$AW_XDG"/wayland-* >/dev/null 2>&1; }
+hyprctl_answers()     { hyprctl_user version  | grep -qi hyprland; }
+hypr_has_monitor()    { hyprctl_user monitors | grep -qE "^Monitor "; }
+hypr_monitor_mode()   { hyprctl_user monitors | grep -qE "[0-9]+x[0-9]+@"; }
+
+check "the wayland socket exists"   have_wayland_socket
+check "hyprctl answers"             hyprctl_answers
+check "a monitor is present"        hypr_has_monitor
+check "the monitor has a mode"      hypr_monitor_mode
+check "pipewire is running"         pgrep -x pipewire
+check "wireplumber is running"      pgrep -x wireplumber
+# Portals are D-Bus ACTIVATED: they start when an application asks for one.
+# With nothing running that wants a file picker or a screencast, the portal is
+# correctly not running, so asserting that it is tests nothing. Assert instead
+# that it is installed and registered for this desktop, which is the part the
+# installer is actually responsible for.
+check "hyprland portal installed"   test -x /usr/lib/xdg-desktop-portal-hyprland
+check "hyprland portal registered"  test -f /usr/share/xdg-desktop-portal/portals/hyprland.portal
+check "gtk portal registered"       test -f /usr/share/xdg-desktop-portal/portals/gtk.portal
+check "portal is dbus-activatable"  test -f /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.hyprland.service
+check "user hyprland.conf seeded"   test -f "/home/$AW_USER/.config/hypr/hyprland.conf"
+check "user foot.ini seeded"        test -f "/home/$AW_USER/.config/foot/foot.ini"
+check "packaged defaults present"   test -f /usr/share/archwright/default-config/hypr/hyprland.conf
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then

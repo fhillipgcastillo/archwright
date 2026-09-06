@@ -665,7 +665,7 @@ def phase_all():
         if "ASSERTIONS-PASSED" not in out:
             die("installed-system assertions failed - see the report above")
 
-        log("PASS: milestone 1 gate met")
+        log("PASS: milestone 2 gate met - encrypted base plus a live Hyprland session")
     finally:
         for p in (proc, proc2):
             if p is not None:
