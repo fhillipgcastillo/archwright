@@ -459,10 +459,57 @@ def phase_disk():
                 pass
 
 
+def phase_base():
+    stack = []
+    try:
+        ser, _, _ = boot_live(stack)
+        for phase, timeout in (("preflight", 300), ("disk", 900), ("base", 2400)):
+            rc, _ = run_installer(ser, phase, timeout)
+            if rc != 0:
+                die(f"phase {phase} failed with status {rc}")
+
+        check_guest(ser, [
+            # Assert the property, not a line count: genfstab writes one entry
+            # per mounted subvolume, and 'subvol=/@' is a substring of
+            # 'subvol=/@home'. What matters is that / is mounted from @.
+            ("awk '$2==\"/\" && $4 ~ /(^|,)subvol=\\/@(,|$)/ {f=1}"
+             " END {if (f) print \"ROOTFSTAB-OK\"}' /mnt/etc/fstab", "ROOTFSTAB-OK"),
+            ("awk '$2==\"/home\" {f=1} END {if (f) print \"HOMEFSTAB-OK\"}' /mnt/etc/fstab",
+             "HOMEFSTAB-OK"),
+            ("awk '$2==\"/boot\" && $3==\"vfat\" {f=1}"
+             " END {if (f) print \"ESPFSTAB-OK\"}' /mnt/etc/fstab", "ESPFSTAB-OK"),
+            ("cat /mnt/etc/hostname", "archwright-vm"),
+            ("cat /mnt/etc/locale.conf", "en_US.UTF-8"),
+            ("arch-chroot /mnt id -u test >/dev/null && echo USER-OK", "USER-OK"),
+            ("test -d /mnt/home/test && echo HOME-OK", "HOME-OK"),
+            # Proves /etc/skel was populated BEFORE useradd ran. If skeleton
+            # seeding ever drifts below useradd, this is what catches it.
+            ("test -d /mnt/home/test/.local/state/archwright && echo SKEL-OK", "SKEL-OK"),
+            ("arch-chroot /mnt id -nG test", "wheel"),
+            ("arch-chroot /mnt systemctl is-enabled NetworkManager.service", "enabled"),
+            # `systemctl is-enabled` exits non-zero for a masked unit even
+            # while printing 'masked', so this one is asserted on output only.
+            ("arch-chroot /mnt systemctl is-enabled NetworkManager-wait-online.service"
+             " || true", "masked"),
+            ("cat /mnt/usr/share/archwright/VERSION", "milestone-1"),
+            ("arch-chroot /mnt pacman -Q linux >/dev/null && echo KERNEL-OK", "KERNEL-OK"),
+            ("arch-chroot /mnt pacman -Q limine >/dev/null && echo LIMINE-OK", "LIMINE-OK"),
+            ("arch-chroot /mnt pacman -Q snapper >/dev/null && echo SNAPPER-OK", "SNAPPER-OK"),
+        ], "base")
+        log("PASS: base system installed and configured")
+    finally:
+        for fn in reversed(stack):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
 PHASES = {
     "iso-smoke": phase_iso_smoke,
     "preflight": phase_preflight,
     "disk": phase_disk,
+    "base": phase_base,
 }
 
 
