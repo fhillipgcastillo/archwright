@@ -1,0 +1,4 @@
+.tools/
+.vmrun/
+*.qcow2
+*.iso
