@@ -22,6 +22,7 @@ snapper
 ## Group: boot
 efibootmgr
 limine
+libnotify
 mkinitcpio
 plymouth
 
@@ -31,6 +32,7 @@ openssh
 
 ## Group: cli-staples
 bash-completion
+curl
 git
 less
 man-db

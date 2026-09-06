@@ -115,10 +115,13 @@ def serve_repo():
     VMRUN.mkdir(parents=True, exist_ok=True)
     tar_path = VMRUN / "repo.tar"
     with tarfile.open(tar_path, "w") as tar:
-        for name in ("install.sh", "lib", "manifest", "test"):
+        for name in ("install.sh", "lib", "manifest", "test", "bin"):
             src = REPO / name
             if src.exists():
                 tar.add(src, arcname=name)
+    # Also served standalone: the installed system fetches this directly
+    # rather than unpacking the whole tree just to run one script.
+    shutil.copy(REPO / "test" / "vm" / "assertions.sh", VMRUN / "assertions.sh")
     log(f"packed working tree -> {tar_path} ({tar_path.stat().st_size} bytes)")
 
     def handler(*a, **kw):
@@ -505,11 +508,140 @@ def phase_base():
                 pass
 
 
+def phase_boot():
+    """Install through the boot phase and inspect the target, without rebooting.
+
+    Much faster to iterate on than the full gate: it skips the second boot,
+    which is the slow part, while still exercising everything that writes the
+    bootloader, the UKI and the snapper configuration.
+    """
+    stack = []
+    try:
+        ser, _, _ = boot_live(stack)
+        for phase, timeout in (("preflight", 300), ("disk", 900),
+                               ("base", 2400), ("boot", 2400)):
+            rc, _ = run_installer(ser, phase, timeout)
+            if rc != 0:
+                die(f"phase {phase} failed with status {rc}")
+
+        check_guest(ser, [
+            ("ls /mnt/boot/vmlinuz-linux >/dev/null && echo KERNEL-OK", "KERNEL-OK"),
+            ("ls /mnt/boot/initramfs-linux.img >/dev/null && echo INITRAMFS-OK",
+             "INITRAMFS-OK"),
+            ("test -f /mnt/boot/EFI/BOOT/BOOTX64.EFI && echo LIMINE-EFI-OK",
+             "LIMINE-EFI-OK"),
+            ("test -f /mnt/boot/limine.conf && echo LIMINECONF-OK", "LIMINECONF-OK"),
+            ("grep -c 'rd.luks.name' /mnt/etc/archwright/cmdline", "1"),
+            ("grep -c 'protocol: linux' /mnt/boot/limine.conf", "2"),
+            ("grep -c 'rootflags=subvol=@snapshots/' /mnt/boot/limine.conf", "1"),
+            ("test -f /mnt/etc/snapper/configs/root && echo SNAPPERCFG-OK",
+             "SNAPPERCFG-OK"),
+            ("arch-chroot /mnt snapper --no-dbus -c root list"
+             " | grep -cE '^[[:space:]]*[1-9]'", "1"),
+            ("mountpoint -q /mnt/.snapshots && echo SNAPMOUNT-OK", "SNAPMOUNT-OK"),
+            # Tested INSIDE the chroot: the symlink target is absolute, so from
+            # the host it resolves against the host root and looks broken even
+            # when it is correct in the target.
+            ("arch-chroot /mnt test -x /usr/bin/archwright-limine-update && echo CLI-OK", "CLI-OK"),
+        ], "boot")
+        log("PASS: bootloader, initramfs and snapper are configured in the target")
+    finally:
+        for fn in reversed(stack):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
+def phase_all():
+    """The milestone 1 gate: install, reboot, unlock, log in, assert."""
+    disk = fresh_run_dir()
+    port, httpd = serve_repo()
+    proc = None
+    proc2 = None
+    try:
+        # ---- install, from the live ISO ----
+        sport = free_port()
+        proc = start_qemu(disk, sport)
+        ser = Serial(sport)
+        wait_for_live_shell(ser)
+        guest_fetch_repo(ser, port)
+        for phase, timeout in (("preflight", 300), ("disk", 900),
+                               ("base", 2400), ("boot", 2400)):
+            rc, _ = run_installer(ser, phase, timeout)
+            if rc != 0:
+                die(f"install phase {phase} failed with status {rc}")
+        log("install complete; powering down the live environment")
+        ser.send("sync; systemctl poweroff -i")
+        try:
+            proc.wait(timeout=180)
+        except subprocess.TimeoutExpired:
+            log("live environment did not power off in time; killing it")
+            proc.kill()
+        proc = None
+
+        # ---- boot what we just installed ----
+        # Same disk, same OVMF vars (so the NVRAM entry written during install
+        # is present), and no ISO: nothing to fall back on.
+        log("booting the installed system from disk")
+        sport = free_port()
+        proc2 = start_qemu(disk, sport, iso_boot=False)
+        ser = Serial(sport)
+
+        log("gate 2: waiting for the LUKS passphrase prompt")
+        ser.read_until("passphrase", BOOT_TIMEOUT)
+        ser.send("testpassphrase")
+        log("gate 2 met: passphrase prompt appeared and was answered")
+
+        log("gate 3: waiting for a login prompt")
+        ser.read_until("login:", BOOT_TIMEOUT)
+        ser.send("test")
+        ser.read_until("Password:", 120)
+        ser.send("testpassword")
+        ser.read_until("@archwright-vm", 120)
+        rc, _ = ser.run("true", 60)
+        if rc != 0:
+            die("logged in but could not run a command")
+        log("gate 3 met: the installed system booted and accepted a login")
+
+        # NetworkManager needs a moment for DHCP; retry rather than assume.
+        rc, _ = ser.run(
+            f"for i in $(seq 1 30); do "
+            f"curl -fsS -o /tmp/assertions.sh http://10.0.2.2:{port}/assertions.sh "
+            f"&& break; sleep 2; done; test -s /tmp/assertions.sh", 120)
+        if rc != 0:
+            die("could not fetch the assertion script into the installed system")
+
+        rc, out = ser.run(
+            "echo testpassword | sudo -S bash /tmp/assertions.sh 2>&1", 180)
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith(("ok ", "FAIL", "  ")) or "ASSERTIONS" in line:
+                log(f"  {line}")
+        if "ASSERTIONS-PASSED" not in out:
+            die("installed-system assertions failed - see the report above")
+
+        log("PASS: milestone 1 gate met")
+    finally:
+        for p in (proc, proc2):
+            if p is not None:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
+
+
 PHASES = {
     "iso-smoke": phase_iso_smoke,
     "preflight": phase_preflight,
     "disk": phase_disk,
     "base": phase_base,
+    "boot": phase_boot,
+    "all": phase_all,
 }
 
 

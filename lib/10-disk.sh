@@ -125,6 +125,12 @@ aw_disk() {
   mkdir -p /mnt/boot
   mount "$AW_ESP_DEV" /mnt/boot || aw_die "could not mount the ESP at /mnt/boot"
 
+  # Persist what the boot phase needs: it runs as a separate process.
+  aw_state_set esp_dev    "$AW_ESP_DEV"
+  aw_state_set root_dev   "$AW_ROOT_DEV"
+  aw_state_set esp_num    "$esp_num"
+  aw_state_set crypt_name "$AW_CRYPT_NAME"
+
   aw_log info "mount tree:"
   findmnt -R /mnt >&2
 }

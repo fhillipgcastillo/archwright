@@ -55,6 +55,33 @@ aw_tracked() {
   cat "$AW_TRACK_DIR/$kind"
 }
 
+# Cross-phase state.
+#
+# Each `install.sh --phase X` is its own process, so a variable set in the
+# disk phase is gone by the boot phase. Facts that later phases need are
+# written here instead. /run is tmpfs, which is the right lifetime: it lives
+# for this boot of the live environment and vanishes afterwards.
+aw_state_set() {
+  local key="$1" value="$2"
+  mkdir -p "$AW_TRACK_DIR/state"
+  printf '%s' "$value" > "$AW_TRACK_DIR/state/$key"
+}
+
+aw_state_get() {
+  local key="$1"
+  [ -f "$AW_TRACK_DIR/state/$key" ] || return 1
+  cat "$AW_TRACK_DIR/state/$key"
+}
+
+# The partition number of a device node, read from sysfs rather than parsed
+# out of the name - naming differs between sd*, nvme*p* and mmcblk*p*.
+aw_partition_number_of() {
+  local dev="$1" name
+  name="${dev##*/}"
+  [ -f "/sys/class/block/$name/partition" ] || return 1
+  cat "/sys/class/block/$name/partition"
+}
+
 aw_run_in_chroot() {
   arch-chroot /mnt /usr/bin/env bash -euo pipefail -c "$*"
 }
