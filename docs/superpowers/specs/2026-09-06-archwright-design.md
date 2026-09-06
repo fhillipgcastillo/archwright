@@ -2,10 +2,19 @@
 
 **Date:** 2026-09-06
 **Status:** Approved design, pre-implementation
-**Source research:** the nine-part Omarchy investigation in the Main Vault
-(`Operating system/Custom OS Builder/Omarchy/`), in particular
-`Rebuilding Omarchy From Scratch — Synthesis` and
-`Installable Version Roadmap — Synthesis`.
+**Source research:** the nine-part Omarchy investigation in the author's Obsidian
+vault (`Operating system/Custom OS Builder/Omarchy/`). The vault is not part of
+this repo, so every fact this design depends on is reproduced in
+[`../../research-extract.md`](../../research-extract.md) — read that, not the
+vault.
+
+**Companion documents:**
+
+| Document | Holds |
+|---|---|
+| [`../../decisions.md`](../../decisions.md) | Every fork, what was rejected, why. Read before proposing an alternative |
+| [`../../research-extract.md`](../../research-extract.md) | The load-bearing technical facts, each cited to its source note |
+| [`../../../CLAUDE.md`](../../../CLAUDE.md) | Repo conventions, verification commands, and the disk-safety rule |
 
 ---
 
@@ -91,14 +100,22 @@ Entries marked ⚙️ are single-line changes in `manifest/`.
 
 ### Session environment
 
-The environment block is copied verbatim from the research —
-`XDG_CURRENT_DESKTOP=Hyprland`, `ELECTRON_OZONE_PLATFORM_HINT=wayland`,
-`xwayland.force_zero_scaling` and the rest. These are the small facts that
-otherwise take weeks to rediscover.
+The full environment block is reproduced in
+[`../../research-extract.md`](../../research-extract.md) §1 and is taken as-is.
+It is the pile of small facts that otherwise takes weeks to rediscover:
+`XDG_CURRENT_DESKTOP=Hyprland` is what makes screen sharing work in Meet and
+Discord, `MOZ_ENABLE_WAYLAND=1` matters here more than in the source research
+because Archwright defaults to Firefox, and `xwayland.force_zero_scaling` avoids
+blurry X11 clients on scaled displays.
 
 Autostart runs `systemctl --user import-environment` and
 `dbus-update-activation-environment --systemd --all` **before** starting session
-services. This is the documented fix for slow application launches.
+services — the documented fix for slow application launches. Exact commands and
+ordering in research-extract §2.
+
+Look-and-feel defaults (square corners, no blur, no shadows, workspace
+animations off) and the CapsLock-as-compose input default are in
+research-extract §3 and §4.
 
 ---
 

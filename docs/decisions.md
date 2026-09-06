@@ -1,0 +1,395 @@
+# Decision Record
+
+Every fork taken while designing Archwright, what was chosen, what was rejected,
+and why. The spec records *what* the system is; this file records *why it isn't
+something else* — which is the part that gets lost first.
+
+Decided 2026-09-06 in a design session with the author. Facts referenced here are
+in [`research-extract.md`](research-extract.md); the system itself is specified
+in [`superpowers/specs/2026-09-06-archwright-design.md`](superpowers/specs/2026-09-06-archwright-design.md).
+
+Format: **Chosen** · **Rejected** · **Why** · **Would change if**.
+
+---
+
+## D1 — Two deliverables, not one
+
+**Chosen.** A hand-build guide *and* an automated installer, treated as equal
+first-class outputs of one design.
+
+**Rejected.** Installer only, with a README. A guide only.
+
+**Why.** The two serve different people and different moments. Someone who wants
+to *understand* an Arch + Hyprland system is badly served by `curl | bash`;
+someone who wants a working machine this afternoon is badly served by forty
+manual steps. Shipping only the installer also means the reasoning behind every
+choice lives nowhere.
+
+**Would change if.** The guide proves impossible to keep honest against the
+installer — but D9 exists to prevent exactly that.
+
+---
+
+## D2 — Base layer: LUKS2 + btrfs + snapper + Limine
+
+**Chosen.** The full storage stack: GPT/ESP, LUKS2 container, btrfs subvolumes
+(`@ @home @snapshots @log @pkg`), UKI, Limine, snapper with snapshots on update.
+
+**Rejected.**
+- *Simple*: GPT + ESP + ext4, systemd-boot, no encryption. Easiest to write and
+  the most reliable script.
+- *Middle*: btrfs + snapper but no LUKS.
+- *Runtime choice*: ask the user, support all shapes.
+
+**Why.** Snapshot-with-rollback is named in the source research as one of the top
+transferable ideas, and it is the thing that makes a rolling-release base safe to
+actually daily-drive. Encryption is a one-time cost at install for a permanent
+property. Making it a runtime choice roughly doubles the testing surface for a
+v1 that has no users yet.
+
+**Consequence — Limine is non-negotiable.** Snapshot rollback is unavailable on
+GRUB and systemd-boot; `limine-snapper-sync` is what keeps the boot menu in step
+with snapper. This one requirement rules out the `archinstall` JSON path in D4.
+
+**Would change if.** A target machine's firmware turns out to be hostile to
+Limine. The fallback is the *Middle* option plus a documented manual rollback,
+not GRUB.
+
+---
+
+## D3 — Desktop shell: assemble, behind a swap boundary
+
+**Chosen.** waybar, mako, walker, hyprlock, hypridle and swaybg as separate
+mature packages — but isolated behind one systemd user target
+(`archwright-shell.target`) so the whole furniture layer can be replaced as a
+unit. No other layer names any of those packages.
+
+**Rejected.**
+- *Write a Quickshell shell.* One process, everything themes together, panels
+  open instantly. The source research puts this at weeks-to-months of QML, and
+  nothing exists until it is written — the 23 first-party plugins in the system
+  studied are 23 things a team wrote and maintains.
+- *Assemble with no boundary*, wired directly the way most dotfiles repos do.
+- *Sway instead of Hyprland.* Simpler config, far less GPU-dependent, friendlier
+  in VMs — but it discards most of the researched Hyprland knowledge.
+
+**Why.** Assembling gets a working desktop in days using packages other people
+maintain. The boundary costs a small amount of structure now and keeps the
+Quickshell door open once there is real experience of living with the assembled
+version. Retrofitting the boundary later means auditing the whole install.
+
+**Known cost.** Each component themes separately, in its own config format
+(waybar is JSON + CSS, mako is INI, hyprlock is Hyprland syntax). This is exactly
+why the theming fan-out in D10 exists. Panels also spawn a process on open, so
+the launcher has a visible cold-start hitch that a single-process shell would not.
+
+**Would change if.** The per-component theming fan-out becomes the dominant
+maintenance burden, which is the signal that a single-process shell has started
+paying for itself.
+
+---
+
+## D4 — Delivery: a script run from the stock Arch ISO
+
+**Chosen.** The user boots the official, unmodified Arch install medium and runs
+one command. The script does partitioning, LUKS, btrfs, `pacstrap`, Limine,
+snapper, then desktop, apps and AI layer.
+
+**Rejected.**
+- *Custom `archiso` ISO with a bundled offline mirror.* The most polished
+  handoff — the researched system installs in under five minutes precisely
+  because nothing downloads. But it means building and hosting a multi-gigabyte
+  image and rebuilding it as packages go stale: a second project alongside the
+  first.
+- *Declarative `archinstall` JSON plus a post-install script.* Least code. Ruled
+  out by D2 — `archinstall` has no Limine support, and the JSON path gives up the
+  phase-ordering control that §7 of the research extract shows is load-bearing.
+- *Post-install script only*, run on an already-installed Arch system. Cannot
+  deliver D2 at all: LUKS, subvolume layout and bootloader are install-time
+  decisions.
+
+**Why.** It is the only option that delivers the chosen base layer with no
+hosting infrastructure. It is also a plain shell script a stranger can read
+before running it, which matters more than polish for something meant to be
+shared. And it is the natural precursor to an ISO — an `archiso` profile later
+just wraps the same script and the same manifests.
+
+**Known cost.** Needs a network connection throughout, and the install takes as
+long as the downloads take (20–40 minutes rather than five).
+
+**Would change if.** Installs become frequent enough that the download time
+matters, or the project starts being handed to non-technical people.
+
+---
+
+## D5 — AI layer: four pieces in, two out
+
+**Chosen.** Lazy agent CLI stubs with a default-agent convention and hotkey; a
+shared agent skill directory symlinked across agents; time-boxed passwordless
+sudo; a local model runtime in the extras tier.
+
+**Rejected.**
+- *Crash diagnosis* — watch `systemd-coredump`, hand a segfault's core dump to
+  the default agent. Genuinely clever, but meaningfully more code and it needs a
+  working notification click-handler.
+- *Agent usage / quota tracking panel* — per-subscription plan and quota display
+  in the bar. Per-vendor API scraping on a refresh timer; it breaks whenever any
+  vendor changes an endpoint. The highest-maintenance item in the entire
+  researched system relative to its value here.
+
+**Why.** The four chosen pieces are all cheap and all durable. Lazy stubs cost
+nothing until first run, so shipping a dozen is free. The skill directory is a
+handful of symlinks. The sudo window is a small script and a transient timer. The
+two rejected pieces are the only ones with ongoing external dependencies.
+
+**Would change if.** Someone else wants to own the usage panel as a separate
+plugin — it is a reasonable standalone project, just not part of a base system.
+
+---
+
+## D6 — Auto-approve agent flags ship commented out
+
+**Chosen.** The shipped aliases include the unattended, don't-stop-to-ask flags
+(`--permission-mode auto` and equivalents) **present but commented**, with the
+warning attached. The `~/Work` redirect for launches from `$HOME` is kept.
+
+**Rejected.** Shipping them active, as the researched system does.
+
+**Why.** This is a deliberate divergence, not an oversight. Combined with the
+time-boxed sudo window in D5, an active auto-approve alias means an unattended
+agent with root-adjacent access to a freshly installed machine. That should be a
+choice someone makes on purpose, not a default they inherit from an installer.
+Leaving the flags visible but inert means the capability is discoverable and one
+edit away.
+
+**Would change if.** Nothing foreseeable. The cost of the safe default is one
+uncommented line.
+
+---
+
+## D7 — Applications: two tiers
+
+**Chosen.** A small fixed core (one tool per job) plus an opt-in extras list the
+installer offers and the guide presents as add-on sections.
+
+**Rejected.**
+- *Core only* (~20 packages). Smallest guide, fastest install.
+- *Core plus a fixed productivity layer* (~35 packages).
+- *Match the researched base manifest closely*, including office suite, OBS and
+  a video editor. At that point it stops being a base install and the guide gets
+  long.
+
+**Why.** The core stays honest and quick to verify; the extras make the
+deliverable useful to more than one person without inflating what everybody gets.
+The source system's own "zero bloat" claim is undermined by shipping an office
+suite by default — the two-tier split avoids inheriting that contradiction.
+
+**Known cost.** More combinations to test. Mitigated by the VM oracle driving a
+fixed extras selection from the answer file.
+
+---
+
+## D8 — Firefox as the default browser
+
+**Chosen.** Firefox default, with a `policies.json` for sane defaults and native
+Wayland. Chromium available in `extras`.
+
+**Rejected.** Chromium as default, as the researched system does.
+
+**Why.** Author preference, and nothing in the design depends on Chromium. The
+two custom browser extensions in the researched system (a URL copier and a video
+downloader, both riding a native messaging host) were never in scope to clone, so
+choosing Chromium would have bought nothing.
+
+**Known cost.** Firefox's chrome does not recolour from `colors.toml` as cleanly
+as Chromium's would. Browser theming is therefore **best-effort** — documented as
+a limitation rather than papered over. `MOZ_ENABLE_WAYLAND=1` becomes
+load-bearing rather than incidental.
+
+**Would change if.** Nothing. The limitation is cosmetic and stated.
+
+---
+
+## D9 — Sync model: shared manifests plus a drift check
+
+**Chosen.** Package lists, subvolume layout and hotkeys live as plain data files
+in `manifest/`. The installer reads them at runtime; no package list is hardcoded
+in `lib/`. A script verifies the guide's tables match them and exits non-zero on
+mismatch.
+
+**Rejected.**
+- *Independent artifacts kept aligned by hand.* What almost every dotfiles
+  project does, and why almost every dotfiles project's README is wrong.
+- *Literate source* — the script tangled out of the guide's fenced code blocks.
+  Cannot drift, but means maintaining a tangler, and the script becomes a
+  generated artifact that is awkward to edit or debug.
+
+**Why.** It gives the documentation a real oracle — a check that passes or fails
+rather than a promise — without inventing a build system. Prose stays
+hand-written and human; only the facts are pinned. The same manifest files are
+what an `archiso` profile would consume if D4 is ever revisited.
+
+**Follow-on decision.** Hyprland's keybind block is **generated** from
+`manifest/hotkeys.tsv` at install time rather than hand-written, with a "do not
+edit" header and user overrides in a separate sourced file. Otherwise the
+manifest is a third copy that can disagree with both the config and the guide,
+and the drift check would be validating docs against docs.
+
+---
+
+## D10 — Theming: install-time only
+
+**Chosen.** One `colors.toml` fanned out at install time to foot, Hyprland,
+waybar CSS, mako, walker, btop and Neovim. No runtime theme-switching engine.
+
+**Kept from the research anyway**, because both cost almost nothing:
+- the `themed/*.tpl` escape hatch, where **user templates outrank shipped ones**
+- **install-time sanitization** of imported themes — colours in, executables out
+
+**Rejected.** A full theme-switching engine with a picker, live regeneration and
+a theme catalogue. The researched system drives 20+ applications from one palette
+file; the fan-out *is* the work, and it is a project in its own right.
+
+**Why.** "Bare basics with the UI" does not include a theming engine. The
+escape hatch and the sanitization rule are kept because they are each a few lines
+and they remove whole categories of future problem — respectively "please theme
+app X" requests, and executing a stranger's code because they called it a theme.
+
+**Would change if.** The project grows a theme catalogue, at which point the
+runtime engine is the obvious next feature and the template system is already in
+place to receive it.
+
+---
+
+## D11 — Hardware: generic, with a self-detecting script directory
+
+**Chosen.** Target generic x86_64 UEFI. Ship `hardware/*.sh` where each script
+probes for its hardware and no-ops when absent, with GPU driver selection
+(Intel/AMD/NVIDIA) plus placeholders for suspend and audio. Re-runnable after
+install.
+
+**Rejected.**
+- *Optimize for one specific machine first.* Fastest to a daily driver, least
+  useful to anyone else.
+- *VM-only, bare metal deferred.* Removes all firmware variability but means the
+  result cannot actually be daily-driven, and the encryption and snapshot layers
+  go under-tested.
+
+**Note on scope.** The option selected in the design session was plain "generic,
+verified in a VM." The `hardware/` directory is a small expansion on that: GPU
+driver selection has to live *somewhere*, and the alternative is hardcoding it
+inline in `lib/40-desktop.sh`, which is worse and harder to extend. The directory
+is the structural pattern from the research (§20) applied at minimum size — three
+scripts, not forty-five.
+
+**Why.** The source research is emphatic that the hardware matrix is "the
+accumulated residue of a user base, not a design," and that a rebuild should
+scope it to one machine and grow it only on report. A directory of self-detecting
+no-ops is the cheapest structure that allows that growth without a refactor.
+
+---
+
+## D12 — Verification: a QEMU VM boot is the oracle
+
+**Chosen.** `test/vm-install.sh` (Linux host) as the primary oracle: QEMU with
+OVMF UEFI firmware, blank qcow2, stock Arch ISO, unattended install from an
+answer file, reboot, then assert LUKS prompt, boot, Hyprland session, a snapper
+snapshot, and a snapshot entry in the Limine menu. Every milestone is gated on
+it. Supporting checks: the drift check, `shellcheck`, and an idempotency run.
+
+**Rejected.** Inspection, "it looks right," and testing only on real hardware.
+
+**Why.** The author's standing working rule is that no change is done until an
+independent check has been run and seen to pass. For an OS installer the only
+honest check is a real boot. Real hardware alone is too slow to iterate on and
+destroys the machine under test.
+
+**Borrowed from the research (§21):** each run gets a **throwaway overlay with
+its own firmware variables**, so no disk or NVRAM state leaks between runs. This
+is easy to omit and produces confusing false passes when omitted.
+
+---
+
+## D13 — Windows host support for the oracle
+
+**Chosen.** `tools/fetch-qemu-windows.ps1` pulls a portable QEMU build and OVMF
+firmware into `.tools/` inside the repo — nothing installed system-wide, nothing
+added to `PATH`, deleting the folder undoes it. `test/vm-install.ps1` runs the
+same flow. WSL2 is documented as a fallback only.
+
+**Rejected.** Requiring a system-wide QEMU install. WSL2 as the primary path.
+
+**Why.** The author develops on Windows and does not have QEMU installed. A
+portable, self-contained toolchain inside the repo means testing costs one script
+run rather than a system change, and it is trivially reversible. WSL2 needs
+nested virtualization enabled or the VM runs unaccelerated and impractically
+slow — acceptable as a fallback, wrong as a default.
+
+**Guide consequence.** The guide's main body assumes bare metal on any UEFI
+machine and makes no host-OS assumptions. Host-specific material lives in a
+"try it in a VM first" appendix with a Linux track and a Windows track.
+
+---
+
+## D14 — Locations: guide in the vault, installer standalone
+
+**Chosen.** The guide is a vault note in `Operating system/Custom OS Builder/`,
+linked into the existing MOCs. The installer is this repo at
+`E:\data\dev\archwright`.
+
+**Rejected.**
+- *Both in the vault*, following the existing guide-plus-script pattern.
+- *Vault as source of truth with the repo generated from it.* Single source, but
+  an export step to maintain.
+
+**Why.** A `curl`-able installer has to be a real repo with its own history and
+README. The vault stays the research and writing surface. The cost is two places
+to keep in sync, which is what D9 addresses.
+
+**Follow-on.** Because the repo must stand alone for anyone who clones it, the
+vault research it depends on is reproduced in
+[`research-extract.md`](research-extract.md) rather than referenced by path.
+
+---
+
+## D15 — Name: Archwright
+
+**Chosen.** `archwright` — project, repo, CLI command and `/usr/share` path.
+Short aliases (`awu`, `aws`, `awa`, `a`) for frequent verbs.
+
+**Rejected**, from a long list: *Archway* (elegant, and *arch* + *way*land, but
+says nothing about building it yourself), *Archland* / *Arcland* (most
+informative, least elegant), *Minarchy* (frames the project as derivative),
+*Cairn*, *Lintel*, *Axiom*, *Chassis*, *Bastion*, *Archetype* (crowded search
+results), and others.
+
+**Why.** A *wright* is a maker — shipwright, wheelwright, playwright — so an
+archwright builds arches. It puts "you build this yourself" in the name, which is
+the actual character of both deliverables. Reads as Arch on sight. Effectively
+uncontested: a GitHub search found five repositories, none above one star and
+none in this space.
+
+**Known cost.** Ten letters, so the CLI needs aliases. People will type
+*Archwrite*.
+
+---
+
+## D16 — Explicitly not a distribution
+
+**Chosen.** No package repository, no Arch mirror, no signing key, no release
+channels, no migration system, no custom ISO.
+
+**Why.** The central finding of the source research is that "the hard part is not
+the desktop, it's the delivery system" — roughly 80% of the engineering in the
+system studied sits in the repo, mirror, ISO, migrations, snapshot wiring and
+hardware scripts, and none of it is visible in a screenshot. That research also
+warns that the characteristic failure is starting at distribution scope and
+discovering dotfiles-scope problems.
+
+Archwright is deliberately **scope A** — a configuration set plus an install
+script — with two borrowings from scope B: snapshots, and an unattended answer
+file. Both are cheap and both pay for themselves immediately.
+
+**Would change if.** Never, without a deliberate re-scoping conversation. Adding
+a package repo means signing keys, key rotation, a mirror, and writing migrations
+forever.
