@@ -359,8 +359,71 @@ def phase_iso_smoke():
         proc.kill()
 
 
+ANSWERS = "/root/archwright/test/vm/answers.example.conf"
+
+
+def run_installer(ser, phase, timeout=1800, answers=ANSWERS):
+    return ser.run(
+        f"bash /root/archwright/install.sh --answers {answers} --phase {phase} --yes",
+        timeout)
+
+
+def boot_live(stack):
+    """Boot the ISO, log in, deliver the tree. Returns (ser, port)."""
+    disk = fresh_run_dir()
+    sport = free_port()
+    port, httpd = serve_repo()
+    proc = start_qemu(disk, sport)
+    stack.append(httpd.shutdown)
+    stack.append(proc.kill)
+    ser = Serial(sport)
+    wait_for_live_shell(ser)
+    guest_fetch_repo(ser, port)
+    return ser, port, disk
+
+
+def phase_preflight():
+    stack = []
+    try:
+        ser, _, _ = boot_live(stack)
+
+        rc, _ = run_installer(ser, "preflight", 300)
+        if rc != 0:
+            die(f"preflight failed with status {rc}")
+        log("confirmed: preflight succeeds on a valid target")
+
+        # A preflight that passes on garbage is worse than no preflight, so
+        # assert the refusals too rather than only the happy path.
+        refusals = [
+            ("DISK=/dev/does-not-exist", "not a block device"),
+            ("DISK=/dev/vda1", "partition"),
+            ("DISK=/dev/vda; rm -rf /", "invalid"),
+            ("HOSTNAME=", "required"),
+        ]
+        for override, expected in refusals:
+            ser.run(f"sed 's|^DISK=.*|DISK=/dev/vda|' {ANSWERS} > /tmp/bad.conf", 60)
+            key = override.split("=", 1)[0]
+            ser.run(f"sed -i '/^{key}=/d' /tmp/bad.conf && echo '{override}' >> /tmp/bad.conf", 60)
+            rc, out = run_installer(ser, "preflight", 300, answers="/tmp/bad.conf")
+            if rc == 0:
+                die(f"preflight ACCEPTED a bad answer file ({override!r}) - it must refuse")
+            if expected not in out:
+                log(f"  note: refused {override!r} but the message did not mention {expected!r}")
+            else:
+                log(f"  confirmed: refused {override!r}")
+
+        log("PASS: preflight accepts a valid target and refuses invalid ones")
+    finally:
+        for fn in reversed(stack):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
 PHASES = {
     "iso-smoke": phase_iso_smoke,
+    "preflight": phase_preflight,
 }
 
 
