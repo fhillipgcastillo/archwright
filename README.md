@@ -9,7 +9,7 @@ it by hand, and this **installer** that does it for you.
 
 ---
 
-## ⚠️ Status: milestone 3 of 7
+## ⚠️ Status: milestone 4 of 7
 
 **What works today:** a bootable, fully encrypted, snapshot-capable Arch system
 with a **usable Hyprland desktop** — status bar, notifications, app launcher,
@@ -17,8 +17,12 @@ wallpaper, idle handling and a lock screen. UEFI, LUKS2, btrfs subvolumes,
 Limine with per-snapshot boot entries, snapper, a deny-all firewall, audio and
 desktop portals.
 
-**What does not exist yet:** applications beyond a terminal (milestone 4); the
-AI tooling (milestone 5); theming and hardware driver selection (milestone 6).
+**Applications:** Firefox, Neovim, Nautilus, an image viewer, a video player
+and a PDF viewer, with sensible defaults — double-clicking a file opens the
+right thing. Plus the CLI staples (eza, bat, fd, fzf, lazygit, btop).
+
+**What does not exist yet:** the AI tooling (milestone 5); theming and hardware
+driver selection (milestone 6).
 
 | Key | Does |
 |---|---|
@@ -148,10 +152,25 @@ LOCALE=en_US.UTF-8
 TIMEZONE=America/New_York  # see: timedatectl list-timezones
 KEYMAP=us
 AUTOLOGIN=0                # 1 skips the login prompt entirely
+EXTRAS=                    # optional extras, comma separated - see below
 SERIAL_CONSOLE=0           # leave at 0 - test builds only
 ```
 
 Values containing `#` or trailing spaces must be quoted: `USER_PASSWORD="a#b "`.
+
+**Optional extras.** Leave `EXTRAS=` empty for none, or pick groups by name:
+
+| Group | Contains |
+|---|---|
+| `office` | LibreOffice |
+| `media` | OBS Studio, Kdenlive, GIMP |
+| `containers` | Docker, Docker Compose, Lazydocker |
+| `browsers` | Chromium |
+| `ai-local` | Ollama |
+| `gaming` | Steam, Lutris — **enables the `multilib` repository** |
+
+For example `EXTRAS=office,containers`. Nothing outside the groups you name is
+installed, and `multilib` is enabled only if you choose `gaming`.
 
 > The file holds your passwords in plain text. It lives in the live
 > environment's RAM and disappears at reboot — but do not copy it onto the

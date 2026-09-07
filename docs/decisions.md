@@ -885,3 +885,31 @@ does not match the CPU, and having both means the same disk still boots if it
 moves between an Intel and an AMD machine — which matters for a system whose
 point is that you can image it and hand it to someone.
 **Trigger:** gap review turned an unexamined default into a stated choice.
+
+## 2026-09-07 — milestone 4
+
+### L38 — Repository requirements are manifest data, not code
+`gaming` needs the `multilib` repository because Steam is the only package here
+outside `extra`. That requirement is declared in `manifest/extras.packages` as a
+`## Requires: multilib` line the parser reads, rather than hardcoded in `lib/`.
+Package facts stay with the package data — the same rule that keeps package
+names out of the installer. The repository is enabled only when a selected group
+asks for it, and the gate asserts it stays off otherwise, so nobody receives a
+32-bit package set they never requested.
+**Trigger:** package availability checked before planning.
+
+### L39 — `vim` dropped in favour of `neovim`
+Neovim is the decided editor (spec §3). Shipping both is exactly the pattern
+L36 removed plymouth for: a package nothing chose, surviving because removing it
+looks riskier than leaving it. `nano` stays deliberately, as the fallback for
+when something is broken and a modal editor is the wrong tool. A test asserts
+`vim` does not come back.
+**Trigger:** gap review applied to a new milestone rather than only backwards.
+
+### L40 — Handler assertions query `xdg-mime`, they do not check for a file
+Asserting that `/etc/xdg/mimeapps.list` exists would pass for a file that
+resolves to nothing. The gate asks `xdg-mime query default` for html, png, mp4,
+pdf and directories and compares the answer. Writing that assertion is what
+surfaced the dependency: resolution needs `update-desktop-database` to have run,
+which the apps phase now does.
+**Trigger:** writing the assertion honestly.

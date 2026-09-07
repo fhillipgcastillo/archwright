@@ -838,7 +838,7 @@ def phase_all():
         if "ASSERTIONS-PASSED" not in out:
             die("installed-system assertions failed - see the report above")
 
-        log("PASS: milestone 3 gate met - encrypted base, Hyprland session, shell layer")
+        log("PASS: milestone 4 gate met - encrypted base, desktop, shell layer, applications")
         archive_last_good(disk)
     finally:
         for p in (proc, proc2):
