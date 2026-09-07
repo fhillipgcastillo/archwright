@@ -612,15 +612,48 @@ waybar_journal_is_clean() {
 }
 check_v "waybar started without errors or warnings" waybar_journal_is_clean
 
-# The layer-rule syntax probe that used to sit here is removed. It reported all
-# four candidate forms rejected, which looked decisive and was not: `hyprctl
-# keyword layerrule` does not apply layer rules at all on this version, so the
-# probe could not distinguish a wrong syntax from a channel that never works.
-# A test whose failure has two explanations answers neither.
+# --- probe: the 0.53+ layer rule syntax --------------------------------------
 #
-# Settling it needs a real parse - a candidate written into a sourced file and
-# the config reloaded - which is worth doing when blur is worth re-adding, and
-# is recorded as a gap until then.
+# INFORMATIONAL. Hyprland 0.53 replaced the rule syntax; the pre-0.53 form was
+# removed rather than guessed at, and blur on the bar has been off since.
+#
+# The previous attempt at this probe went through `hyprctl keyword layerrule`
+# and reported all four candidates rejected - which read as decisive and proved
+# nothing, because that command does not apply layer rules on this version at
+# all. A rejection meant either a wrong syntax or a channel that never works.
+#
+# This one writes the candidate into a file the config sources and reloads, so
+# a rejection has exactly one explanation: the parser refused it. The config is
+# restored afterwards either way.
+probe_layerrule() {
+  local candidate="$1" conf="$AW_HOME/.config/hypr/probe-layerrule.conf" out
+  printf '%s\n' "$candidate" > "$conf"
+  chown "$AW_USER:$AW_USER" "$conf"
+  printf 'source = %s\n' "$conf" >> "$AW_HOME/.config/hypr/hyprland.conf"
+  hyprctl_user reload >/dev/null 2>&1
+  out="$(hyprctl_user configerrors 2>&1)"
+  # Put the config back before judging, so a failure cannot leave the VM broken
+  # for every assertion after this one.
+  sed -i "\|^source = $conf\$|d" "$AW_HOME/.config/hypr/hyprland.conf"
+  rm -f "$conf"
+  hyprctl_user reload >/dev/null 2>&1
+  [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]
+}
+
+printf '      --- layerrule syntax probe (informational) ---\n'
+for candidate in \
+  'layerrule = blur, waybar' \
+  'layerrule = blur on, match:namespace waybar' \
+  'layerrule = match:namespace = waybar, blur = true' \
+  'layerrule = blur = true, match:namespace = waybar'
+do
+  if probe_layerrule "$candidate"; then
+    printf '      ACCEPTED: %s\n' "$candidate"
+  else
+    printf '      rejected: %s\n' "$candidate"
+  fi
+done
+check "the probe left the config clean" hypr_config_is_clean
 
 # The wallpaper: a link the user owns, so a theme change needs no root.
 check "the wallpaper link resolves"  test -f "$AW_HOME/.local/state/archwright/wallpaper.png"
@@ -803,9 +836,29 @@ check "and the theme's own returns" \
   wallpaper_points_at /usr/share/archwright/wallpapers/gruvbox.png
 check "the choice was forgotten"    sh -c "! test -e $AW_HOME/.local/state/archwright/wallpaper-custom"
 
+# --- the light palette -------------------------------------------------------
+#
+# Six of the seven palettes are dark and the gate only ever installed a dark
+# one, so the branch in archwright-apply-gtk-theme that decides light from dark
+# had never run. That branch is a luma calculation on the palette's own base
+# colour - deliberately not a check on the name, so a future light palette works
+# without editing the script - and an untested calculation would have shipped a
+# light theme with every GTK application rendering dark-on-dark.
+gsetting_is() {
+  [ "$(aw_user_run gsettings get org.gnome.desktop.interface "$1" 2>/dev/null | tr -d "'")" = "$2" ]
+}
+
+check "switching to the light palette works" aw_user_run archwright theme set latte
+check "the light palette's colours applied" \
+  grep -q "8839ef" "$AW_HOME/.config/hypr/colors.conf"
+check "GTK follows it into light mode"       gsetting_is color-scheme prefer-light
+check "and picks the light GTK theme"        gsetting_is gtk-theme adw-gtk3
+check "and the light icon set"               gsetting_is icon-theme Papirus-Light
+
 # Back to the documented default for anyone who pokes around this VM.
 aw_user_run archwright theme set mocha >/dev/null 2>&1
 check "restored to mocha"           wallpaper_points_at /usr/share/archwright/wallpapers/mocha.png
+check "and GTK went back to dark"   gsetting_is color-scheme prefer-dark
 
 # What P2 actually cost, measured rather than estimated - D18 says state the
 # trade as a number. Informational.
