@@ -23,20 +23,29 @@ export LC_ALL=C
 . "$AW_ROOT/lib/partition.sh"
 # shellcheck source=lib/config.sh
 . "$AW_ROOT/lib/config.sh"
+# shellcheck source=lib/resume.sh
+. "$AW_ROOT/lib/resume.sh"
 
 ANSWERS=""
 ONLY_PHASE=""
 ASSUME_YES=0
 HOST_PKG_CACHE=0
+RESUME=0
 
 usage() {
   cat <<'EOF'
 Usage: install.sh --answers <file> [--phase <name>] [--yes]
 
   --answers <file>  Unattended answer file (required).
-  --phase <name>    Run a single phase: preflight, disk, base, boot, session.
+  --phase <name>    Run a single phase: preflight, disk, base, boot, session,
+                    shell.
                     Default: all of them, in order.
   --yes             Do not prompt before erasing the target disk.
+  --resume          Continue an install that was interrupted. Reopens the
+                    existing LUKS container, remounts the tree, and skips the
+                    phases that already finished. Refuses unless the disk is
+                    positively identified as an Archwright install in progress,
+                    so it can never wipe or adopt somebody else's disk.
   --host-pkg-cache  Install packages from the LIVE ENVIRONMENT's pacman cache
                     instead of the target's. Only pass this when that cache is
                     backed by real storage - on a stock Arch ISO it is a tmpfs
@@ -53,6 +62,7 @@ while [ $# -gt 0 ]; do
     --phase)   ONLY_PHASE="${2:-}"; shift 2 ;;
     --yes)     ASSUME_YES=1; shift ;;
     --host-pkg-cache) HOST_PKG_CACHE=1; shift ;;
+    --resume)  RESUME=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; aw_die "unknown argument: $1" ;;
   esac
@@ -61,8 +71,8 @@ done
 [ -n "$ANSWERS" ] || { usage >&2; aw_die "--answers is required"; }
 
 case "$ONLY_PHASE" in
-  ''|preflight|disk|base|boot|session) ;;
-  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base, boot or session)" ;;
+  ''|preflight|disk|base|boot|session|shell) ;;
+  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base, boot, session or shell)" ;;
 esac
 
 aw_answers_load "$ANSWERS"
@@ -75,16 +85,30 @@ run_phase() {
   if [ -n "$ONLY_PHASE" ] && [ "$ONLY_PHASE" != "$name" ]; then
     return 0
   fi
+  # On a resumed install, skip whatever the previous attempt finished. This is
+  # the entire point of --resume: not re-downloading 500MB because the wifi
+  # dropped at minute 35.
+  if [ "$RESUME" -eq 1 ] && aw_phase_is_done "$name"; then
+    aw_log info "=== phase: $name (already done, skipping) ==="
+    return 0
+  fi
   aw_log info "=== phase: $name ==="
   # shellcheck source=/dev/null
   . "$AW_ROOT/lib/$file"
   "aw_$name"
+  aw_phase_record "$name"
 }
+
+if [ "$RESUME" -eq 1 ]; then
+  aw_log info "resuming a previous install"
+  aw_resume_prepare
+fi
 
 run_phase preflight 00-preflight.sh
 run_phase disk      10-disk.sh
 run_phase base      20-base.sh
 run_phase boot      30-boot.sh
 run_phase session   40-session.sh
+run_phase shell     50-shell.sh
 
 aw_log info "installation complete"

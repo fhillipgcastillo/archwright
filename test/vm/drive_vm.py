@@ -39,6 +39,10 @@ VMRUN = CACHE / "vmrun"
 # the guest over 9p so pacstrap reads packages from local disk instead of
 # re-downloading ~500MB of Arch mirrors on every single run.
 PKGCACHE = CACHE / "pkgcache"
+# A passing gate's disk is archived here so there is always a bootable,
+# known-good image to look at. VMRUN is wiped at the start of every run, which
+# previously meant starting a test destroyed the very thing you wanted to boot.
+LASTGOOD = CACHE / "last-good"
 
 # Not shipped into the guest: documentation and local build artifacts. Anything
 # else in the repo root goes, so a new directory the installer reads does not
@@ -589,7 +593,7 @@ def phase_boot():
         ser, _, _ = boot_live(stack)
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400),
-                               ("session", 1200)):
+                               ("session", 1200), ("shell", 900)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"phase {phase} failed with status {rc}")
@@ -626,8 +630,123 @@ def phase_boot():
             ("test -f /mnt/usr/share/archwright/default-config/hypr/hyprland.conf"
              " && echo DEFAULTS-OK", "DEFAULTS-OK"),
             ("stat -c %U /mnt/home/test/.config/hypr/hyprland.conf", "test"),
+            # --- shell phase ---
+            ("test -f /mnt/etc/systemd/user/archwright-shell.target && echo TARGET-OK",
+             "TARGET-OK"),
+            ("ls /mnt/etc/systemd/user/archwright-shell.target.wants/ | wc -l", "5"),
+            # A .wants symlink starts a unit but does NOT stop it with the
+            # target. PartOf, via a drop-in, is what makes the boundary work in
+            # both directions.
+            ("ls -d /mnt/etc/systemd/user/*.service.d 2>/dev/null | wc -l", "4"),
+            ("grep -l 'PartOf=archwright-shell.target'"
+             " /mnt/etc/systemd/user/*.service.d/*.conf | wc -l", "4"),
+            ("test -f /mnt/home/test/.config/waybar/config.jsonc && echo WAYBAR-OK",
+             "WAYBAR-OK"),
+            ("test -f /mnt/home/test/.config/mako/config && echo MAKO-OK", "MAKO-OK"),
+            ("test -f /mnt/home/test/.config/hypr/shell.conf && echo SHELLCONF-OK",
+             "SHELLCONF-OK"),
+            ("grep -c 'archwright-shell.target' /mnt/home/test/.config/hypr/shell.conf",
+             "1"),
+            ("stat -c %U /mnt/home/test/.config/waybar/config.jsonc", "test"),
         ], "boot")
         log("PASS: bootloader, initramfs and snapper are configured in the target")
+    finally:
+        for fn in reversed(stack):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
+def archive_last_good(disk):
+    """Keep a copy of the disk from the most recent PASSING run.
+
+    VMRUN is destroyed at the start of every run, so without this, kicking off
+    a test deletes the image you wanted to inspect - which is exactly what
+    happened once and cost a confusing debugging session.
+    """
+    try:
+        LASTGOOD.mkdir(parents=True, exist_ok=True)
+        for name in ("disk.qcow2", "OVMF_VARS.fd"):
+            src = VMRUN / name
+            if src.exists():
+                shutil.copy2(src, LASTGOOD / name)
+        log(f"archived a known-good image to {LASTGOOD}")
+    except OSError as exc:
+        log(f"WARNING: could not archive the disk: {exc}")
+
+
+def phase_resume():
+    """Prove an interrupted install can continue instead of starting over.
+
+    Installs up to and including `base` - the expensive phase - then simulates
+    an interruption by tearing the mounts down and discarding /run, which is
+    what a reboot would do. A resumed run must then skip disk and base and
+    finish the rest.
+    """
+    stack = []
+    try:
+        ser, _, _ = boot_live(stack)
+        for phase, timeout in (("preflight", 300), ("disk", 900), ("base", 2400)):
+            rc, _ = run_installer(ser, phase, timeout)
+            if rc != 0:
+                die(f"phase {phase} failed with status {rc}")
+
+        rc, out = ser.run("cat /mnt/boot/archwright/install-state", 60)
+        if "disk" not in out or "base" not in out:
+            die(f"install state does not record the finished phases: {out!r}")
+        log("state file records disk and base")
+
+        # Simulate the interruption: everything /run held is gone, nothing is
+        # mounted, the container is closed. Exactly the state after a reboot.
+        log("simulating an interruption (unmount, close LUKS, discard /run state)")
+        ser.run("umount -R /mnt", 120)
+        ser.run("cryptsetup close cryptroot", 60)
+        ser.run("rm -rf /run/archwright", 60)
+        rc, out = ser.run("mountpoint -q /mnt && echo STILL-MOUNTED || echo CLEAN", 60)
+        if "CLEAN" not in out:
+            die("could not tear the mounts down to simulate an interruption")
+
+        log("resuming ...")
+        rc, out = ser.run(
+            "bash /root/archwright/install.sh"
+            f" --answers {ANSWERS} --yes --host-pkg-cache --resume", 2400)
+        if rc != 0:
+            die(f"resumed install failed with status {rc}")
+
+        for phase in ("disk", "base"):
+            if f"phase: {phase} (already done, skipping)" not in out:
+                die(f"resume did not skip the completed '{phase}' phase")
+        log("resume skipped disk and base")
+        for phase in ("boot", "session", "shell"):
+            if f"=== phase: {phase} ===" not in out:
+                die(f"resume did not run the remaining '{phase}' phase")
+        log("resume ran boot, session and shell")
+
+        check_guest(ser, [
+            ("cat /mnt/boot/archwright/install-state | tr '\n' ' '", "shell"),
+            ("test -f /mnt/boot/limine.conf && echo LIMINE-OK", "LIMINE-OK"),
+            ("test -f /mnt/etc/systemd/user/archwright-shell.target && echo SHELL-OK",
+             "SHELL-OK"),
+        ], "resume")
+
+        # Refusing to adopt a disk that is not ours is the safety property that
+        # makes --resume acceptable at all.
+        rc, out = ser.run("umount -R /mnt; cryptsetup close cryptroot;"
+                          " rm -rf /run/archwright;"
+                          " mount /dev/vda1 /tmp/esp2 2>/dev/null || "
+                          " { mkdir -p /tmp/esp2 && mount /dev/vda1 /tmp/esp2; };"
+                          " mv /tmp/esp2/archwright /tmp/esp2/archwright.hidden;"
+                          " umount /tmp/esp2", 120)
+        rc, out = ser.run(
+            "bash /root/archwright/install.sh"
+            f" --answers {ANSWERS} --yes --resume 2>&1 | tail -3", 300)
+        if "refusing to touch this disk" not in out:
+            die("resume adopted a disk with no Archwright state - the safety "
+                f"check did not fire. Output: {out[-400:]!r}")
+        log("resume correctly refused a disk with no Archwright state")
+
+        log("PASS: an interrupted install resumes, and refuses unknown disks")
     finally:
         for fn in reversed(stack):
             try:
@@ -651,7 +770,7 @@ def phase_all():
         guest_fetch_repo(ser, port)
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400),
-                               ("session", 1200)):
+                               ("session", 1200), ("shell", 900)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"install phase {phase} failed with status {rc}")
@@ -705,7 +824,8 @@ def phase_all():
         if "ASSERTIONS-PASSED" not in out:
             die("installed-system assertions failed - see the report above")
 
-        log("PASS: milestone 2 gate met - encrypted base plus a live Hyprland session")
+        log("PASS: milestone 3 gate met - encrypted base, Hyprland session, shell layer")
+        archive_last_good(disk)
     finally:
         for p in (proc, proc2):
             if p is not None:
@@ -760,6 +880,7 @@ PHASES = {
     "disk": phase_disk,
     "base": phase_base,
     "boot": phase_boot,
+    "resume": phase_resume,
     "all": phase_all,
 }
 

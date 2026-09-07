@@ -126,6 +126,87 @@ check "user hyprland.conf seeded"   test -f "/home/$AW_USER/.config/hypr/hyprlan
 check "user foot.ini seeded"        test -f "/home/$AW_USER/.config/foot/foot.ini"
 check "packaged defaults present"   test -f /usr/share/archwright/default-config/hypr/hyprland.conf
 
+# --- Milestone 3: the shell layer -------------------------------------------
+systemctl_user() {
+  runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" systemctl --user "$@"
+}
+as_user() {
+  runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" "$@"
+}
+
+wait_for_shell() {
+  local i=0
+  while [ "$i" -lt 60 ]; do
+    if pgrep -x waybar >/dev/null 2>&1; then return 0; fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+if wait_for_shell; then
+  printf 'ok    the shell layer came up\n'
+else
+  printf 'FAIL  the shell layer came up\n'
+  printf '      --- archwright user units ---\n'
+  systemctl_user list-units 'archwright*' --no-pager 2>&1 | sed 's/^/      /'
+  printf '      --- waybar journal ---\n'
+  journalctl --user-unit waybar -n 20 --no-pager 2>&1 | sed 's/^/      /'
+  fails=$((fails + 1))
+fi
+
+shell_target_active() { systemctl_user is-active --quiet archwright-shell.target; }
+check "shell target is active"      shell_target_active
+check "waybar is running"           pgrep -x waybar
+check "mako is running"             pgrep -x mako
+check "swaybg is running"           pgrep -x swaybg
+check "hypridle is running"         pgrep -x hypridle
+check "polkit agent is running"     pgrep -f hyprpolkitagent
+
+# On-demand, NOT services. Asserting these were running would repeat the
+# mistake recorded as L27.
+check "hyprlock is installed"       test -x /usr/bin/hyprlock
+check "fuzzel is installed"         test -x /usr/bin/fuzzel
+check "hyprlock is NOT running"     sh -c '! pgrep -x hyprlock >/dev/null'
+
+# Notifications end to end, before the boundary test restarts everything.
+notify_works() {
+  as_user notify-send "archwright test" "hello" || return 1
+  sleep 1
+  as_user makoctl list | grep -q "archwright test"
+}
+check "notifications reach mako"    notify_works
+
+check "waybar config seeded"        test -f "/home/$AW_USER/.config/waybar/config.jsonc"
+check "mako config seeded"          test -f "/home/$AW_USER/.config/mako/config"
+check "shell.conf seeded"           test -f "/home/$AW_USER/.config/hypr/shell.conf"
+
+# The boundary itself (D3). This is what makes the swap claim real rather than
+# aspirational: one target must control the whole layer. Deliberately LAST,
+# because it restarts the desktop mid-test and anything after it would fail for
+# an unrelated reason.
+boundary_stops() {
+  systemctl_user stop archwright-shell.target
+  sleep 3
+  ! pgrep -x waybar >/dev/null && ! pgrep -x mako >/dev/null \
+    && ! pgrep -x swaybg >/dev/null
+}
+boundary_starts() {
+  systemctl_user start archwright-shell.target
+  local i=0
+  while [ "$i" -lt 30 ]; do
+    if pgrep -x waybar >/dev/null && pgrep -x mako >/dev/null \
+       && pgrep -x swaybg >/dev/null; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+check "stopping the target stops the whole layer" boundary_stops
+check "starting the target restores it"           boundary_starts
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then

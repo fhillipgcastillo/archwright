@@ -13,6 +13,7 @@ export AW_CACHE="${ARCHWRIGHT_CACHE:-$HOME/.cache/archwright}"
 export AW_ISO="$AW_CACHE/archlinux.iso"
 export AW_BOOT="$AW_CACHE/boot"
 export AW_VMRUN="$AW_CACHE/vmrun"
+export AW_LASTGOOD="$AW_CACHE/last-good"
 
 aw_env_qemu() {
   if [ -n "${ARCHWRIGHT_QEMU:-}" ]; then printf '%s\n' "$ARCHWRIGHT_QEMU"; return 0; fi

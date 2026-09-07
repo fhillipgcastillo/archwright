@@ -35,6 +35,7 @@ cd "$HERE" || exit 1
 
 PERSIST=0
 DISPLAY_MODE="gtk"
+SOURCE="last-good"
 
 usage() {
   cat <<'EOF'
@@ -44,6 +45,9 @@ Usage: tools/boot-installed.sh [--write] [--serial-only]
                  the disk is untouched and everything is discarded on exit.
   --serial-only  No graphical window; serial console only. Useful over SSH,
                  or when there is no display available.
+  --latest       Boot the disk from the most recent run instead of the last
+                 PASSING one. That disk is deleted and rebuilt at the start of
+                 every test run, so only use this when no run is in progress.
 
 Log in with the credentials from the answer file the install used
 (test/vm/answers.example.conf by default: user "test", password
@@ -57,17 +61,40 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --write)       PERSIST=1; shift ;;
     --serial-only) DISPLAY_MODE="none"; shift ;;
+    --latest)      SOURCE="latest"; shift ;;
     -h|--help)     usage; exit 0 ;;
     *) usage >&2; echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
 
-disk="$AW_VMRUN/disk.qcow2"
-vars="$AW_VMRUN/OVMF_VARS.fd"
+# Default to the archived copy from the last PASSING gate run. AW_VMRUN is
+# wiped at the start of every test, so pointing at it by default meant that
+# kicking off a run destroyed the image you were about to boot.
+if [ "$SOURCE" = "last-good" ] && [ -f "$AW_LASTGOOD/disk.qcow2" ]; then
+  src_dir="$AW_LASTGOOD"
+  echo "Booting the archived image from the last passing run."
+else
+  src_dir="$AW_VMRUN"
+  if [ "$SOURCE" = "last-good" ]; then
+    echo "No archived image yet - falling back to the most recent run." >&2
+    echo "That disk is rebuilt by every test run; if one is in progress this" >&2
+    echo "will fail or show a half-finished install." >&2
+  fi
+fi
+
+disk="$src_dir/disk.qcow2"
+vars="$src_dir/OVMF_VARS.fd"
 
 if [ ! -f "$disk" ]; then
   echo "No installed disk at $disk" >&2
   echo "Run an install first:  bash test/vm-install.sh --phase all" >&2
+  exit 1
+fi
+
+# A clear message beats QEMU's "Failed to get write lock" three lines deep.
+if pgrep -f "qemu-system-x86_64.*$(basename "$src_dir")/disk.qcow2" >/dev/null 2>&1; then
+  echo "A QEMU process is already using $disk." >&2
+  echo "Wait for the test run to finish, or use --latest / --write carefully." >&2
   exit 1
 fi
 [ -f "$vars" ] || { echo "missing firmware vars at $vars" >&2; exit 1; }
