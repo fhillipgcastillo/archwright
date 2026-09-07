@@ -1,0 +1,17 @@
+# Archwright default notification appearance.
+font=JetBrainsMono Nerd Font 10
+background-color=#1d2021
+text-color=#ebdbb2
+border-color=#928374
+border-size=2
+border-radius=0
+padding=10
+default-timeout=5000
+anchor=top-right
+margin=10
+
+# Critical notifications never time out on their own. If something is genuinely
+# urgent, it should not vanish while you are looking away.
+[urgency=critical]
+border-color=#fb4934
+default-timeout=0

@@ -1,0 +1,16 @@
+# The shell swap boundary (decision D3).
+#
+# Every long-lived piece of desktop furniture - bar, notifications, wallpaper,
+# idle handling, polkit agent - is WantedBy this target and nothing else.
+# Hyprland's autostart starts this target and names no component directly.
+#
+# To replace the whole furniture layer (with Quickshell, say): point this
+# target's .wants at different units. Nothing else in Archwright has to change,
+# which is the entire purpose of the boundary.
+[Unit]
+Description=Archwright shell layer
+Documentation=https://github.com/fhillipgcastillo/archwright
+# graphical-session.target is set up by uwsm when Hyprland starts, so binding to
+# it means the shell dies with the session instead of lingering after logout.
+BindsTo=graphical-session.target
+After=graphical-session.target

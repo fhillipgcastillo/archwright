@@ -1,0 +1,21 @@
+# swaybg ships no systemd unit of its own, so Archwright supplies one.
+#
+# A solid colour rather than an image: shipping a wallpaper means shipping a
+# binary asset, and the theming milestone will drive this from the palette
+# anyway.
+[Unit]
+Description=Wallpaper (swaybg)
+PartOf=archwright-shell.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+# The colour is quoted: systemd only treats '#' as a comment at the start of a
+# line, but an unquoted '#1d2021' here is the kind of thing that silently
+# becomes an empty argument on some parser or other.
+ExecStart=/usr/bin/swaybg --color "#1d2021"
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=archwright-shell.target
