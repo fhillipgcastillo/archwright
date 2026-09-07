@@ -1552,3 +1552,51 @@ lint rule rather than another log entry.
 | Only Mocha is exercised end to end | The gate installs Mocha and switches to Tokyo Night and back. The other five are covered by rendering every template for every palette in unit tests, which catches a bad value but not a bad-looking one. |
 | GTK theming is asserted by file, not by appearance | `archwright-apply-gtk-theme` needs a session bus; the gate checks the settings files exist and that the script is autostarted, not that Nautilus came up dark. |
 | No light palette is gated | `latte` renders and is selectable, but the gate never installs it, so the light branch of the GTK applier is unexercised. |
+| Blur on the bar, launcher and notifications is off | The pre-0.53 `layerrule` syntax was rejected by Hyprland 0.56 and the replacement could not be confirmed from a trustworthy source. Settling it needs a candidate written into a sourced file and the config reloaded, rather than `hyprctl keyword`, which does not apply layer rules at all. Windows were never blurred, which was the expensive part. |
+
+### L71 — Hyprland starts happily on a config it rejects
+The user booted the installed system and found six errors painted across the
+desktop. Every assertion in the gate passed: the session came up, hyprctl
+answered, the accent applied, rounding applied. All true, and all beside the
+point - Hyprland does not refuse a bad option, it ignores the line and shows a
+complaint overlay.
+
+The cause was real: Hyprland 0.53 replaced the window and layer rule syntax,
+and `layerrule = blur, waybar` is the old form. 0.56 installs today.
+
+`hyprctl configerrors` is now a gate assertion. It should have been one from
+the moment that file grew past a handful of lines, and its absence is a
+specific failure of imagination: **I asserted every effect I expected and never
+asked the program whether it was happy.** That generalises past this config -
+anything with a `--check-config`, a `configerrors`, or a validate subcommand
+should be asked directly rather than inferred from its output.
+
+**Trigger:** the user booting the thing and looking at it. Nothing in the
+harness was going to find this.
+
+### L72 — Two assertions written to catch it were themselves wrong
+Worth recording together, because the pattern is the point.
+
+The waybar journal check grepped for `css|style|parse`, which matches waybar's
+own `[info] Using CSS file ...` line on every healthy start. It could not pass.
+
+The Hyprland check required the literal string `no errors`; this version prints
+*nothing* when the config is clean. It could not pass either - the check
+written to catch the bug failed for the opposite reason to the bug.
+
+Both were written quickly, in the same sitting, while fixing something urgent.
+A new assertion needs its own moment of "what does this do when the system is
+healthy", and neither got one.
+**Trigger:** the gate, twice, on consecutive runs.
+
+### L73 — A probe whose failure has two explanations answers nothing
+To settle the 0.53 syntax, the gate tried four candidate layer rules through
+`hyprctl keyword` and reported all four rejected. That reads as decisive and is
+worthless: `hyprctl keyword layerrule` does not apply layer rules at all on
+this version, so every rejection could mean a wrong syntax or a channel that
+never works.
+
+Removed rather than left in, because a misleading result is worse than no
+result - the next person reads "all four rejected" and believes the question is
+closed.
+**Trigger:** the probe returning a suspiciously uniform answer.
