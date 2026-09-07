@@ -95,6 +95,47 @@ repo — `/mnt` I/O is too slow for them.
 the design. They are implemented milestone by milestone (spec §14) — check
 whether a given script exists before assuming it can be run, and implement it as
 part of the milestone that needs it rather than stubbing it.
+
+### How to use the adversarial reviewer without it eating the milestone
+
+Milestone 5 spent more wall-clock on review-and-fix than on building: three
+serial rounds of ~13 minutes each, over a change of roughly 600 lines. The
+rounds were worth running — two of them found permanent passwordless root — but
+the way they were run was wasteful. Every blocker across all rounds lived in one
+file. The rest of the diff was re-read from scratch each time, and a fresh
+reviewer spends most of its runtime orienting.
+
+**Route by blast radius, not by diff size.**
+
+| Change touches | Oracle |
+|---|---|
+| `/etc/sudoers.d`, disk/partitioning, bootloader, LUKS, credentials, anything that runs as root on the installed system | Full adversarial review, every time, no exceptions |
+| Generated shell, or any value interpolated into a command | Adversarial review, scoped to that function |
+| Manifest parsing, config seeding, symlinks, docs, tests | Unit tests + lint. No reviewer |
+
+**Review the dangerous file when it is written, not at the end of the
+milestone.** The sudo window was reviewable the moment it existed. Reviewing it
+then overlaps with building the rest; reviewing it at the end blocks everything.
+
+**Scope the prompt to one artifact and a short list of attacks.** "Review this
+diff" over seven categories produces a long run and a long report in which two
+blockers hide among nine nits. Name the file, name the failure modes worth
+hunting (what survives a reboot? a suspend? a signal? a second invocation?),
+and say what is already covered by tests so it is not re-derived.
+
+**Fan out rather than iterate.** Two or three narrow reviewers in parallel — one
+on the privileged path, one asking "would this assertion fail if the feature
+were deleted?", one on file-ownership — finish in the time of one broad
+reviewer and do not serialise behind each other.
+
+**A re-review is scoped to the fix commit**, never the whole branch again. It
+still happens: a fix to a security bug is a new change (D-log L56), and two of
+this feature's three defects were introduced while fixing the first.
+
+**Spend a unit test before a gate run.** A VM gate is ~6 minutes; two of
+milestone 5's five runs died on things a unit test now catches in a second
+(`--phase ai` missing from the whitelist). Anything checkable statically gets a
+unit test *before* the gate is started, not after it fails.
 <!-- END vdf-project-specifics -->
 
 ---
