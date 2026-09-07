@@ -1365,7 +1365,7 @@ worked.
 
 ---
 
-## P2 — The desktop has almost no GUI applications for system tasks — NOT STARTED
+## P2 — The desktop has almost no GUI applications for system tasks — **DONE, see D25-D27**
 
 Raised during milestone 6. The system installs a compositor, a bar and a
 terminal, and then expects the terminal for everything else. That is a
@@ -1600,3 +1600,109 @@ Removed rather than left in, because a misleading result is worse than no
 result - the next person reads "all four rejected" and believes the question is
 closed.
 **Trigger:** the probe returning a suspiciously uniform answer.
+
+---
+
+## P2 — Graphical applications for system tasks — **DONE**
+
+Raised by the user during milestone 6 and settled here. The system installed a
+compositor and a terminal and expected the terminal for everything else: no
+graphical way to join a wifi network, set the volume, pair a Bluetooth device
+or take a screenshot — not even a CLI screenshot tool was present.
+
+## D25 — Several focused tools, not one control centre
+
+`gnome-control-center` is **23 MB with 56 direct dependencies**, and several of
+its panels expect `gnome-settings-daemon` and `mutter` to be running. In a
+Hyprland session those panels are inert. Paying a large GNOME dependency tree
+for a settings app that is partly non-functional is the worst of both answers.
+
+So: small, focused tools, each opened from the bar element it belongs to.
+Clicking the network indicator opens the connection editor, the volume
+indicator opens `pavucontrol`, the Bluetooth indicator opens `blueman`. That is
+the whole graphical-settings story here — there is no settings app to find,
+because the thing you were already looking at is the way in.
+
+**The verification that mattered:** `network-manager-applet` ships **only**
+`nm-applet`. `nm-connection-editor` is a separate 4.5 MB package. And they do
+different jobs — the applet's tray menu is what lists networks to *join*, the
+editor edits *saved* connections. Shipping only the editor, which is what the
+package name suggests it covers, would have left a laptop unable to get online
+without a terminal. Both ship, and a unit test asserts both, because the
+distinction is not obvious enough to survive a future tidy-up.
+
+## D26 — The wallpaper is yours once you choose one
+
+Before this there was no way to use your own image at all: the wallpaper was
+derived from the palette, full stop.
+
+`archwright wallpaper set` records the choice, and from that moment **a theme
+change stops replacing it**. `wallpaper reset` hands the decision back. This is
+the same contract as the config files (D21) and the seeded launchers: Archwright
+picks the default and stops picking the moment the user does.
+
+The choice is recorded in a state file rather than inferred from the symlink,
+because a link pointing into our own wallpapers directory is ambiguous — it
+could be the palette default or a deliberate pick of that same image.
+
+The gate proves the rule rather than the plumbing: set a picture, change theme,
+assert the picture is still there.
+
+## D27 — Pickers built on fuzzel, not a new GUI
+
+`archwright theme pick` and `archwright wallpaper pick` are fuzzel menus on a
+keybind. fuzzel is already the launcher, so they look and behave like everything
+else, cost nothing, and need no new dependency. The theme picker passes each
+palette's own wallpaper as a swatch through Rofi's extended dmenu protocol,
+which fuzzel implements; if the icon cannot be loaded the entry is still
+selectable, so the failure mode is a plainer list rather than a broken picker.
+
+`azote` (a real thumbnail grid) and `nwg-look` (a GTK settings GUI) are in the
+`theming-gui` extras group for people who would rather browse. azote wants to
+own wallpaper setting — it launches its own backend — so selecting that group
+is choosing azote's way over the systemd unit Archwright manages.
+
+## What it cost, measured
+
+31 MiB of named packages. The largest single entry is `gnome-calculator` at
+10.5 MiB, a third of the total, for a calculator; it is the only official-repo
+option found and is the obvious cut if install size ever matters.
+
+Measured on the installed system after this milestone: **715 packages,
+4,889 MiB total installed size.** That figure is printed by the gate on every
+run so the next change has something to compare against, rather than an
+argument about whether something is "small".
+
+### L74 — Two packages, one obvious-sounding name
+`network-manager-applet` contains no connection editor. The name reads like it
+covers the graphical NetworkManager story and it covers half of it. Checking the
+package's actual file list — not its name, not its description — is what caught
+it, and the same check was already in the project's rules from milestone 4,
+where a wrong `.desktop` name would have made a handler resolve to nothing.
+**Trigger:** verifying binaries against package file lists before writing a
+keybind that calls one.
+
+### L75 — A tool check before argument parsing breaks `--help`
+`archwright-screenshot` checked for grim and wl-copy at the top of the file, so
+`--help` failed on any machine without them - which is exactly the machine
+where someone is most likely to be reading the help. Tools are checked per
+action, after the argument is parsed.
+**Trigger:** a unit test asserting `--help` exits 0, written because it was
+cheap rather than because the failure was suspected.
+
+### L76 — Committed on a red suite, again
+`bash test/run-unit.sh; git commit` with a semicolon rather than `&&`. The
+failure was printed, scrolled past, and had no effect on what happened next.
+This is the same shape as piping a check through `tail` (milestone 4) - the
+check runs, the result is visible, and nothing acts on it. The fix is
+mechanical: a check and a commit never belong in the same command.
+**Trigger:** reading the exit code in the output after the commit had landed.
+
+## Known gaps carried out of P2
+
+| Gap | Why it is acceptable for now |
+|---|---|
+| No picker has been operated by a human | The gate runs `wallpaper set/reset` and `theme set` directly. `theme pick` and `wallpaper pick` open fuzzel and wait for a selection, which the harness cannot make - so the pickers are unexercised end to end, exactly like every keybind on this system. |
+| Whether fuzzel renders a wallpaper PNG as a swatch is unverified | The icon is passed as an absolute path through Rofi's protocol; fuzzel documents icon *names*. If it cannot load one, the list degrades to text. Nothing asserts which happened. |
+| `azote` and `nwg-look` are never installed by a gate run | The `theming-gui` group is asserted absent, not exercised. The conflict between azote's backend and the swaybg unit is reasoned, not observed. |
+| Bluetooth and printing are untestable here | The VM has no Bluetooth controller and no printer. `blueman-manager` exists as a binary; nothing pairs anything. |
