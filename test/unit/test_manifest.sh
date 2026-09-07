@@ -113,6 +113,14 @@ for required in waybar mako fuzzel swaybg hypridle hyprlock hyprpolkitagent     
   else _fail "core.packages" "shell package missing: $required"; fi
 done
 
+# Nothing should be installed that nothing configures. plymouth was shipped
+# unused for three milestones; the branded boot splash belongs to the theming
+# milestone, where it can be done properly and tested.
+if printf '%s
+' "$pkgs" | grep -qx "plymouth"; then
+  _fail "core.packages" "plymouth is installed but nothing configures it"
+else _pass; fi
+
 # walker is AUR-only and must never appear here: building AUR packages at
 # install time is what D2 removed.
 if printf '%s

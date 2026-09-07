@@ -576,8 +576,6 @@ Recorded so they are not mistaken for decisions.
 
 | Gap | Detail |
 |---|---|
-| **Plymouth installed but unconfigured** | No boot splash, no themed unlock. Dead weight until the theming milestone |
-| **`fetch-shellcheck.ps1` does not verify a checksum** | Unlike `fetch-arch-iso.sh`, which checks sha256. Inconsistent |
 | **Super key unusable when viewing the VM from Windows** | Windows and WSLg both claim Super, so no `Super + …` binding reaches the guest. The binding is correct (`hyprctl binds` reports `modmask: 64`) and works on real hardware. Ctrl+Alt+G grab, `GDK_BACKEND=x11`, SDL with `grab-mod`, and VNC were all tried and none helped. Workaround: `hyprctl dispatch` over the serial console. Viewer limitation, not a product defect |
 | **Windows host path unmaintained** | `test/vm-install.ps1` and `tools/fetch-qemu-windows.ps1` are not written or verified. See D13 |
 
@@ -623,7 +621,6 @@ for users in `README.md` under "Honest limitations".
 | **Firmware quirks untested** | OVMF is clean reference firmware. Real firmware may refuse the `efibootmgr` NVRAM entry. The installer warns and relies on the removable-media path, which is right, but unproven against anything odd |
 | **Wi-Fi firmware** | Some chipsets need firmware the ISO does not carry. Preflight reports "no network" without saying why |
 | **Tested cmdline differs from the shipped one** | The harness sets `SERIAL_CONSOLE=1`, adding `console=ttyS0`. A real install leaves it `0`, so the exact command line a user gets has never been booted |
-| **Both microcode packages always installed** | `amd-ucode` and `intel-ucode` both land, so the generated menu loads both. Harmless — the kernel ignores the wrong-vendor image — but not what a real install should look like |
 
 ### L20 — Firewall on by default; `sshd` installed but not enabled
 `ufw` is now in the manifest, configured deny-inbound / allow-outbound, and
@@ -710,6 +707,7 @@ package file lists rather than guessed. **Trigger:** first gate run.
 
 | Gap | Detail |
 |---|---|
+| **No keybinding has ever been pressed** | The gate drives Hyprland through `hyprctl`, not keystrokes, and the Super key cannot reach the guest when the VM is viewed from Windows. So every binding is verified as *configured*, never as *working*. First real-hardware boot closes this |
 | **Graphics drivers** | The VM uses virtio-gpu. `mesa` covers Intel and AMD; **NVIDIA machines will not reach a session** until the hardware milestone adds driver selection. The base system will still boot |
 | **Only one monitor, one mode** | `monitor = , preferred, auto, 1` is untested against multiple outputs, mixed DPI or fractional scaling |
 
@@ -859,3 +857,31 @@ tears the mounts down and discards `/run` to simulate a reboot, resumes, and
 asserts both that the finished phases were skipped and that a disk with no
 Archwright state is refused.
 **Trigger:** flagged by the author as important; recorded as P1, now closed.
+
+### L35 — `fetch-shellcheck.ps1` verifies a checksum
+`tools/fetch-arch-iso.sh` verified the ISO it downloaded; the linter binary that
+gates every commit did not. Now pinned by version *and* sha256, with no way to
+skip the check: overriding the version without also supplying a hash is an
+error rather than a silent downgrade in safety.
+**Trigger:** gap review.
+
+### L36 — `plymouth` removed from the manifest
+It was installed for three milestones and nothing ever configured it — no
+`plymouth` hook in mkinitcpio, no `splash` on the kernel command line. Shipping
+a package nothing uses is the kind of thing that survives forever because
+removing it looks risky.
+
+Configuring it now was the tempting alternative and was rejected: Plymouth takes
+over the console, and the test harness types the LUKS passphrase over the serial
+port. Enabling it without care would break the gate in a way that looks like an
+encryption failure. The branded boot splash belongs to the theming milestone,
+where it can be done properly and tested. A unit test keeps it out until then.
+**Trigger:** gap review.
+
+### L37 — Both microcode packages, deliberately
+Previously an accident, now a decision: `amd-ucode` and `intel-ucode` are both
+installed and both emitted as boot modules. The kernel ignores the image that
+does not match the CPU, and having both means the same disk still boots if it
+moves between an Intel and an AMD machine — which matters for a system whose
+point is that you can image it and hand it to someone.
+**Trigger:** gap review turned an unexamined default into a stated choice.

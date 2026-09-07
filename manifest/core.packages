@@ -10,6 +10,10 @@ linux-firmware
 linux-headers
 
 ## Group: microcode
+# Both vendors, deliberately. The kernel ignores the image that does not match
+# the CPU, and installing both means the same disk still boots correctly if it
+# is moved between an Intel and an AMD machine - which matters for a system
+# whose whole point is that you can image it and hand it to someone.
 amd-ucode
 intel-ucode
 
@@ -23,7 +27,6 @@ snapper
 efibootmgr
 limine
 mkinitcpio
-plymouth
 
 ## Group: network
 networkmanager
