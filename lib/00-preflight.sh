@@ -49,7 +49,12 @@ aw_preflight() {
   # A mounted target means either the wrong disk or a previous run still
   # holding it. Either way, formatting it now would be destructive in a way
   # the operator did not ask for.
-  if lsblk -no MOUNTPOINTS "$AW_DISK" 2>/dev/null | grep -qv '^[[:space:]]*$'; then
+  #
+  # Not on a resume: --resume mounts the tree itself, on a disk it has already
+  # positively identified as an Archwright install via the state file on the
+  # ESP. Refusing here would make resume impossible.
+  if [ "${RESUME:-0}" -ne 1 ] \
+     && lsblk -no MOUNTPOINTS "$AW_DISK" 2>/dev/null | grep -qv '^[[:space:]]*$'; then
     aw_log warn "$AW_DISK currently has mounted partitions:"
     lsblk -no NAME,MOUNTPOINTS "$AW_DISK" >&2
     aw_die "unmount them first, or pick a different disk"
@@ -65,7 +70,10 @@ aw_preflight() {
 
   aw_log info "preflight OK: UEFI, root, $AW_DISK ($((size / 1073741824))GiB), network up"
 
-  if [ "${ASSUME_YES:-0}" -ne 1 ]; then
+  # No erase confirmation on a resume: nothing is being erased, and demanding
+  # the word ERASE for an operation that erases nothing trains people to type
+  # it without reading.
+  if [ "${ASSUME_YES:-0}" -ne 1 ] && [ "${RESUME:-0}" -ne 1 ]; then
     printf 'This will ERASE ALL DATA on %s. Type ERASE to continue: ' "$AW_DISK" >&2
     local reply
     read -r reply

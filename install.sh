@@ -79,6 +79,7 @@ aw_answers_load "$ANSWERS"
 aw_answers_validate || aw_die "answer file is invalid; fix the errors above"
 export ASSUME_YES
 export HOST_PKG_CACHE
+export RESUME
 
 run_phase() {
   local name="$1" file="$2"
