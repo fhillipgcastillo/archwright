@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# The Archwright command. One dispatcher, one subcommand per job.
+#
+# This is the only thing on an installed system that a user is expected to type,
+# so it has to work from a plain shell with no environment set up: no sourcing,
+# no shell integration, no assumptions about which agent is installed.
+#
+# Milestone 5 ships agent, default, mise-install and sudo-window. Milestone 6
+# adds hardware and theme to the same file rather than a second command.
+set -uo pipefail
+
+AW_PREFIX="${ARCHWRIGHT_PREFIX:-/usr/share/archwright}"
+AW_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/archwright"
+AW_BIN_DIR="$HOME/.local/bin"
+AW_WORK_DIR="$HOME/Work"
+AW_FALLBACK_AGENT="claude"
+# Overridable so the path is not repeated in three places. Not a test hook:
+# the grant path is tested in the VM against the real /etc/sudoers.d.
+AW_SUDOERS_D="${ARCHWRIGHT_SUDOERS_D:-/etc/sudoers.d}"
+AW_SUDO_DROPIN="$AW_SUDOERS_D/99-archwright-sudo-window"
+AW_SUDO_UNIT="archwright-sudo-window-revert"
+AW_SUDO_MAX_MINUTES=240
+
+die() { printf 'archwright: %s\n' "$*" >&2; exit 1; }
+usage_error() { printf 'archwright: %s\n\n' "$*" >&2; usage >&2; exit 2; }
+
+# A command name is used to build a path and is later executed. Same charset
+# rule as the answer file: this is a security boundary, not tidiness.
+is_command_name() { printf '%s' "${1-}" | grep -qxE '[a-z][a-z0-9-]*'; }
+
+usage() {
+  cat <<'EOF'
+archwright - manage an Archwright system
+
+usage: archwright <command> [arguments]
+
+commands:
+  agent [args...]              launch the default agent, forwarding arguments
+  default agent [name]         show or set the default agent
+  mise-install <spec> [name]   add a lazy launcher for any mise-installable CLI
+  sudo-window [minutes]        grant passwordless sudo for a while (default 15)
+  version                      print the installed Archwright version
+  help                         this text
+
+examples:
+  archwright default agent codex
+  archwright mise-install npm:@scope/tool tool
+  archwright sudo-window 30
+EOF
+}
+
+cmd_version() {
+  if [ -f "$AW_PREFIX/VERSION" ]; then
+    cat "$AW_PREFIX/VERSION"
+  else
+    printf 'unknown (no %s/VERSION)\n' "$AW_PREFIX"
+  fi
+}
+
+# --- the default agent -------------------------------------------------------
+
+default_agent() {
+  local f="$AW_STATE_DIR/default-agent" name
+  if [ -r "$f" ]; then
+    name="$(head -1 "$f" | tr -d '[:space:]')"
+    if is_command_name "$name"; then printf '%s' "$name"; return 0; fi
+  fi
+  printf '%s' "$AW_FALLBACK_AGENT"
+}
+
+cmd_default() {
+  local key="${1-}"
+  [ -n "$key" ] || usage_error "default: which setting? (agent)"
+  case "$key" in
+    agent)
+      shift
+      if [ "$#" -eq 0 ]; then printf '%s\n' "$(default_agent)"; return 0; fi
+      is_command_name "$1" \
+        || usage_error "default agent: [$1] is not a command name (lowercase letters, digits and hyphens)"
+      mkdir -p "$AW_STATE_DIR" || die "could not create $AW_STATE_DIR"
+      printf '%s\n' "$1" > "$AW_STATE_DIR/default-agent" \
+        || die "could not record the default agent"
+      printf 'default agent is now %s\n' "$1"
+      ;;
+    *) usage_error "default: unknown setting [$key]" ;;
+  esac
+}
+
+# --- launching ---------------------------------------------------------------
+
+cmd_agent() {
+  local name target
+  name="$(default_agent)"
+
+  if [ -x "$AW_BIN_DIR/$name" ]; then
+    target="$AW_BIN_DIR/$name"
+  elif target="$(command -v "$name" 2>/dev/null)"; then
+    :
+  else
+    die "the default agent [$name] is not installed. Set another with: archwright default agent <name>"
+  fi
+
+  # Agents refuse to treat the home directory as a workspace - too much of it
+  # is private and none of it is a project - so a launch from $HOME lands in
+  # ~/Work instead. A launch from anywhere else stays put.
+  if [ "$PWD" = "$HOME" ]; then
+    mkdir -p "$AW_WORK_DIR" 2>/dev/null
+    cd "$AW_WORK_DIR" || die "could not enter $AW_WORK_DIR"
+  fi
+
+  exec "$target" "$@"
+}
+
+# --- wrapping another CLI ----------------------------------------------------
+
+cmd_mise_install() {
+  local spec="${1-}" name="${2-}"
+  [ -n "$spec" ] || usage_error "mise-install: which package? e.g. npm:@scope/tool"
+  case "$spec" in
+    *[[:space:]]*|*'"'*|*'$'*|*'`'*)
+      usage_error "mise-install: [$spec] contains characters that cannot appear in a spec" ;;
+  esac
+
+  # Infer the command from the tail of the spec when it is not given, which is
+  # right for npm:tool and for npm:@scope/tool alike.
+  if [ -z "$name" ]; then
+    name="${spec##*/}"
+    name="${name##*:}"
+  fi
+  is_command_name "$name" \
+    || usage_error "mise-install: [$name] is not a usable command name; pass one explicitly"
+
+  mkdir -p "$AW_BIN_DIR" || die "could not create $AW_BIN_DIR"
+  if [ -e "$AW_BIN_DIR/$name" ]; then
+    printf 'archwright: %s already exists in %s - left alone\n' "$name" "$AW_BIN_DIR"
+    return 0
+  fi
+
+  cat > "$AW_BIN_DIR/$name" <<EOF
+#!/usr/bin/env bash
+# Generated by 'archwright mise-install $spec'.
+#
+# mise resolves and caches the package the first time this runs, so that run
+# needs a network connection. Every run after it is local.
+exec mise exec "$spec" -- $name "\$@"
+EOF
+  chmod 0755 "$AW_BIN_DIR/$name" || die "could not make $name executable"
+  printf 'added %s -> %s\n' "$AW_BIN_DIR/$name" "$spec"
+}
+
+# --- the sudo window ---------------------------------------------------------
+#
+# Agent work means a long run of commands that each want root. The alternatives
+# are typing a password every few minutes, or a permanent NOPASSWD line that
+# outlives the reason for it. This is the middle: a grant that removes itself.
+#
+# Two things make it safe enough to ship:
+#
+#   * The rule is validated with visudo BEFORE it goes anywhere near
+#     /etc/sudoers.d. A malformed file there locks you out of root on the
+#     machine, permanently, with no way back in from a running session.
+#   * The revert is a systemd transient timer, not a background sleep. A
+#     crashed terminal, a closed lid or a killed shell cannot leave the window
+#     open, because nothing about the revert depends on this process surviving.
+
+cmd_sudo_window() {
+  local minutes user
+  # An omitted argument means the default. An argument that was GIVEN must be
+  # valid, so `sudo-window ""` is an error rather than a silent 15 minutes.
+  if [ "$#" -eq 0 ]; then minutes=15; else minutes="$1"; fi
+
+  case "$minutes" in
+    ''|*[!0-9]*) usage_error "sudo-window: [$minutes] is not a whole number of minutes" ;;
+  esac
+  [ "$minutes" -ge 1 ] 2>/dev/null \
+    || usage_error "sudo-window: the window must be at least 1 minute"
+  [ "$minutes" -le "$AW_SUDO_MAX_MINUTES" ] \
+    || usage_error "sudo-window: $AW_SUDO_MAX_MINUTES minutes is the maximum; longer is just NOPASSWD with extra steps"
+
+  # Everything below writes to /etc, so re-exec as root only once the argument
+  # is known to be good. Nothing has been created at this point.
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null 2>&1 || die "sudo-window needs sudo or root"
+    exec sudo -- "$0" sudo-window "$minutes"
+  fi
+
+  user="${SUDO_USER:-root}"
+  is_command_name "$user" || die "sudo-window: refusing to write a rule for [$user]"
+
+  local tmp
+  tmp="$(mktemp)" || die "could not create a temporary file"
+  chmod 0440 "$tmp"
+  cat > "$tmp" <<EOF
+# Written by 'archwright sudo-window $minutes'. A systemd timer removes this
+# file when the window closes; if you are reading it long after that, the timer
+# did not run and you should delete it by hand.
+$user ALL=(ALL:ALL) NOPASSWD: ALL
+EOF
+
+  if ! visudo -cf "$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    die "the generated rule did not pass visudo - refusing to install it"
+  fi
+
+  install -m 0440 -o root -g root "$tmp" "$AW_SUDO_DROPIN" \
+    || { rm -f "$tmp"; die "could not install $AW_SUDO_DROPIN"; }
+  rm -f "$tmp"
+
+  # Replace any window still pending, so asking twice extends rather than
+  # leaving the first timer to close the second window early.
+  systemctl stop "$AW_SUDO_UNIT.timer" >/dev/null 2>&1
+  if ! systemd-run --quiet --on-active="${minutes}m" --unit="$AW_SUDO_UNIT" \
+       /usr/bin/rm -f "$AW_SUDO_DROPIN"; then
+    rm -f "$AW_SUDO_DROPIN"
+    die "could not schedule the revert - the window was NOT opened"
+  fi
+
+  printf 'passwordless sudo granted to %s for %s minute(s).\n' "$user" "$minutes"
+  printf 'it reverts on its own; close it now with: sudo rm -f %s\n' "$AW_SUDO_DROPIN"
+}
+
+# --- dispatch ----------------------------------------------------------------
+
+main() {
+  local cmd="${1:-help}"
+  [ "$#" -gt 0 ] && shift
+  case "$cmd" in
+    help|-h|--help) usage ;;
+    version|--version) cmd_version ;;
+    agent)            cmd_agent "$@" ;;
+    default)          cmd_default "$@" ;;
+    mise-install)     cmd_mise_install "$@" ;;
+    sudo-window)      cmd_sudo_window "$@" ;;
+    *)                usage_error "unknown command [$cmd]" ;;
+  esac
+}
+
+main "$@"
