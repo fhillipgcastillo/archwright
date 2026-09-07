@@ -56,7 +56,7 @@ EOF
   # Archwright's own tree: ours, package-owned, never hand-edited.
   # See the ownership contract in docs/research-extract.md section 10.
   install -d -m 0755 /mnt/usr/share/archwright
-  printf 'milestone-5\n' > /mnt/usr/share/archwright/VERSION
+  printf 'milestone-6\n' > /mnt/usr/share/archwright/VERSION
 
   # Skeleton seeding. This MUST stay above useradd.
   install -d -m 0755 /mnt/etc/skel/.local/state/archwright

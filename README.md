@@ -9,7 +9,7 @@ it by hand, and this **installer** that does it for you.
 
 ---
 
-## ⚠️ Status: milestone 5 of 7
+## ⚠️ Status: milestone 6 of 7
 
 **What works today:** a bootable, fully encrypted, snapshot-capable Arch system
 with a **usable Hyprland desktop** — status bar, notifications, app launcher,
@@ -24,8 +24,15 @@ right thing. Plus the CLI staples (eza, bat, fd, fzf, lazygit, btop).
 **AI tooling:** launchers for Claude Code, Codex, opencode, Crush and pi, plus
 the GitHub CLI. Nothing is downloaded at install time — see below.
 
-**What does not exist yet:** theming and hardware driver selection
-(milestone 6); the written guide (milestone 7).
+**Theming:** seven colour palettes with a generated matching wallpaper, GTK
+applications included, switchable after install with `archwright theme set`.
+
+**Hardware:** GPU driver selection for Intel, AMD and NVIDIA, and a session
+lock before suspend on laptops. Re-runnable with `archwright hardware`.
+
+**What does not exist yet:** the written guide (milestone 7), and a graphical
+way to do system tasks like joining a wifi network - see P2 in the decision
+log.
 
 | Key | Does |
 |---|---|

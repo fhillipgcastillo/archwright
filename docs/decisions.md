@@ -1417,3 +1417,138 @@ Nothing above is a decision, and no package named here has been checked against
 the official repositories yet. That check comes first, before any plan: it is
 the rule that caught walker being AUR-only and would have caught the Limine
 tooling.
+
+---
+
+## D21 — Theming is install-time AND switchable afterwards (revises D10)
+
+D10 said theming happens at install time only: pick a palette in the answer
+file, write it once, no runtime engine. The reasoning was that a theme daemon
+watching for changes is machinery nobody needs.
+
+That still holds — there is no daemon here. But "written once" also meant
+"seven palettes you cannot reach", which is most of the value thrown away to
+avoid a problem the design never had. `archwright theme set nord` regenerates
+seven files and restarts three units. It is a command, not a service.
+
+What makes it safe is the ownership split, which is the actual decision:
+
+| Yours, seeded once, never rewritten | Ours, replaced on every theme change |
+|---|---|
+| `hypr/hyprland.conf` | `hypr/colors.conf` |
+| `waybar/style.css` | `waybar/colors.css` |
+| `foot/foot.ini` | `foot/colors.ini` |
+| `mako/config` | `mako/colors` |
+| `fuzzel/fuzzel.ini` | `fuzzel/colors.ini` |
+
+Every one of those consumers supports an include, which is what makes the split
+possible at all. The gate proves it by editing `style.css`, switching theme, and
+asserting the edit survived.
+
+## D22 — The default look is not plain (revises the milestone 3 rule)
+
+The compositor config carried: "Square corners, no blur, no shadows. Decided,
+not configured." Safe, and indistinguishable from an afternoon with the Arch
+wiki. A system worth installing over vanilla Arch has to look like something on
+first boot, or there is no reason to clone it.
+
+So: rounded corners, a soft shadow, and blur on the **layer surfaces only** —
+the bar, the launcher, notifications. That last distinction is the whole cost
+argument. Blurring windows resamples the full framebuffer every frame and shows
+up immediately on battery and on integrated graphics; blurring three small
+always-on-top surfaces costs almost nothing and is where the effect is actually
+visible.
+
+## D23 — Minimal is not the same as unfinished
+
+Stated by the user, and general enough to outlive this milestone: "having a
+basic or minimal doesn't mean it has to come vanilla — it should bring some
+spice up to avoid having just a vanilla plain, that anyone can do without
+cloning my project."
+
+The test for a default is therefore not "is this the smallest thing that
+works", it is **"does this need to be here for the system to feel finished".**
+Both answers are legitimate; what is not legitimate is defaulting to the
+smallest option because it is the easiest to defend.
+
+Applied here: `adw-gtk-theme` and `papirus-icon-theme` are core rather than
+extras, because without them the GTK applications look like a different decade
+from everything around them — that is not an optional extra, it is the
+difference between themed and half-themed. Recorded as P2: the same test
+applied to graphical applications finds the system badly short.
+
+## D24 — The wallpaper is generated, not shipped
+
+A photograph means a licence to carry, roughly a megabyte in the repository,
+and a background that fights whatever palette is selected. A gradient generated
+from the palette costs 31KB, recolours with the theme, and has no licence at
+all.
+
+`tools/make-wallpaper.py` is standard library only — no Pillow, no numpy. PNG
+is a simple container and zlib is in the stdlib, so the dependency-free version
+is about thirty lines longer and cannot rot. It runs on the developer's machine
+and the output is committed; generating on the target would mean ImageMagick or
+an image library in core, tens of megabytes to draw one gradient.
+
+---
+
+## 2026-09-07 — milestone 6: theming and hardware
+
+### L65 — foot's colour section is [colors-dark], not [colors]
+Written from memory of how foot used to work. foot splits its palette into
+`colors-dark` and `colors-light`, switchable at runtime, and rejects a plain
+`[colors]` section outright. Without the `foot --check-config` assertion this
+ships as a terminal with default colours while everything around it is themed,
+and nothing anywhere reports an error.
+**Trigger:** an assertion that asks the program rather than the file.
+
+### L66 — `include` belongs to the default section
+foot and fuzzel both put every option after a `[section]` header into that
+section, so an include at the bottom of the file is read as
+`[scrollback].include` and rejected. The documentation says the included file
+has its own section scope and that the including file is still in the default
+section afterwards — which describes this exactly, without spelling out that
+the directive itself has to be there.
+**Trigger:** the same two assertions, on the second run.
+
+### L67 — The two config trees are rooted differently
+`/usr/share/archwright/default-config` is already laid out relative to
+`~/.config`. Baking a `.config/` prefix into the theme manifest put `foot.ini`
+at `default-config/.config/foot/foot.ini`, where the seeding phase could not
+find it. Destinations are now relative and the caller supplies the root, which
+a unit test enforces.
+**Trigger:** the gate, on the phase immediately downstream.
+
+### L68 — A link written from outside the target cannot be checked from outside it
+The theme phase writes an absolute symlink into the target's home. Testing it
+with `[ -f ]` from the installer asks the LIVE ISO's filesystem, not the
+target's, and fails a perfectly good install. Check the link's target with
+`readlink`; whether it resolves is a question only the booted system can
+answer, and that is where the gate asks it.
+**Trigger:** the gate, on a phase that had otherwise completed.
+
+### L69 — Dither is 44x the file size, and the compositor removes the banding anyway
+Measured per palette: 1920x1080 with dither, 1362KB; 1280x720 with dither,
+422KB; 1280x720 without, 31KB. Noise is the entire difference, and it exists to
+hide banding that swaybg's bilinear upscaling removes for free. Rendering small
+and letting the compositor smooth it turned 9.5MB of wallpapers into 216KB.
+**Trigger:** looking at the output size before committing it.
+
+### L70 — `cmd | grep -q` under pipefail, again
+L46 recorded this in milestone 5. It was reintroduced in milestone 6, in a new
+assertion, and cost a gate run to diagnose. **Writing a lesson down does not
+prevent it.** The durable fix is a check that fails, not a paragraph that
+explains — which is why `check_v` now exists, and why this pattern is worth a
+lint rule rather than another log entry.
+**Trigger:** a green implementation failing its own assertion.
+
+## Known gaps carried out of milestone 6
+
+| Gap | Why it is acceptable for now |
+|---|---|
+| No hardware script's apply path has run on real hardware | The VM has a virtio GPU and no battery, so the gate proves only that every script no-ops cleanly and leaves nothing behind. Detection is unit-tested against fixture sysfs trees covering Intel, AMD, NVIDIA, hybrid laptops and virtio; what the drivers then do is untested. |
+| **NVIDIA still will not reach a session, unverified** | Modesetting is now configured in `modprobe.d` and the initramfs, which is the usual cause of a black screen. Whether that is sufficient on a real card is unknown. This gap has been carried since milestone 2 and is now *addressed but not closed*. |
+| The suspend lock has never suspended a machine | The unit is installed and enabled on a machine with a battery. Nothing in the harness closes a lid. |
+| Only Mocha is exercised end to end | The gate installs Mocha and switches to Tokyo Night and back. The other five are covered by rendering every template for every palette in unit tests, which catches a bad value but not a bad-looking one. |
+| GTK theming is asserted by file, not by appearance | `archwright-apply-gtk-theme` needs a session bus; the gate checks the settings files exist and that the script is autostarted, not that Nautilus came up dark. |
+| No light palette is gated | `latte` renders and is selectable, but the gate never installs it, so the light branch of the GTK applier is unexercised. |
