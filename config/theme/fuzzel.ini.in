@@ -1,5 +1,11 @@
 # Archwright default launcher.
 # Seeded into ~/.config/fuzzel/ on first install; yours thereafter.
+#
+# The include is FIRST for the same reason as in foot.ini: it belongs to the
+# default section, and anything after a [section] header is read as an option
+# of that section. Absolute path, as fuzzel documents.
+include=@home@/.config/fuzzel/colors.ini
+
 font=JetBrainsMono Nerd Font:size=12
 lines=12
 width=40
@@ -10,7 +16,3 @@ inner-pad=4
 [border]
 width=2
 radius=8
-
-# Colours live in their own file so changing theme does not rewrite this one.
-# fuzzel documents include as taking an absolute path.
-include=@home@/.config/fuzzel/colors.ini

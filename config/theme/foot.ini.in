@@ -4,6 +4,15 @@
 # Note: foot cannot reload its configuration, so a running terminal keeps the
 # old settings after an edit. Open a new one.
 
+# Colours live in their own file so changing theme does not rewrite this one.
+#
+# This line is FIRST on purpose. `include` is an option of the default section,
+# and foot puts every option after a [section] header into that section - so an
+# include at the bottom of the file is read as [scrollback].include and
+# rejected as "not a valid option". The path is absolute because foot documents
+# it that way, which is why this file is generated rather than shipped.
+include=@home@/.config/foot/colors.ini
+
 font=JetBrainsMono Nerd Font:size=11
 pad=8x8
 
@@ -12,8 +21,3 @@ style=beam
 
 [scrollback]
 lines=10000
-
-# Colours live in their own file so changing theme does not rewrite this one.
-# foot documents include as taking an absolute path, which is why this line is
-# generated rather than shipped as a literal.
-include=@home@/.config/foot/colors.ini
