@@ -570,7 +570,13 @@ hypr_config_is_clean() {
   local out
   out="$(hyprctl_user configerrors 2>&1)"
   printf '%s\n' "$out"
-  # A clean config reports "no errors". Anything else is a real complaint.
+  # Clean is EMPTY output on this version; some print "no errors". Requiring
+  # that magic string made a perfectly clean config report as broken - the
+  # first version of this check failed for the opposite reason to the bug it
+  # was written to catch.
+  case "$(printf '%s' "$out" | tr -d '[:space:]')" in
+    "") return 0 ;;
+  esac
   printf '%s' "$out" | grep -qi 'no errors'
 }
 check_v "hyprland reports no configuration errors" hypr_config_is_clean
@@ -597,29 +603,15 @@ waybar_journal_is_clean() {
 }
 check_v "waybar started without errors or warnings" waybar_journal_is_clean
 
-# --- probe: the 0.53+ layer rule syntax --------------------------------------
+# The layer-rule syntax probe that used to sit here is removed. It reported all
+# four candidate forms rejected, which looked decisive and was not: `hyprctl
+# keyword layerrule` does not apply layer rules at all on this version, so the
+# probe could not distinguish a wrong syntax from a channel that never works.
+# A test whose failure has two explanations answers neither.
 #
-# INFORMATIONAL, not an assertion. Hyprland 0.53 replaced the rule syntax and
-# the replacement could not be confirmed from any source worth trusting, so the
-# blur-on-layers lines were removed rather than guessed at. This asks the
-# compositor that is actually installed which form it accepts, which is the one
-# answer that cannot be wrong. Remove this block once the syntax is settled.
-printf '      --- layerrule syntax probe (informational) ---\n'
-for candidate in \
-  'blur, waybar' \
-  'blur on, match:namespace waybar' \
-  'match:namespace = waybar, blur = true' \
-  'blur = true, match:namespace = waybar'
-do
-  if hyprctl_user keyword layerrule "$candidate" >/dev/null 2>&1 \
-     && hyprctl_user configerrors 2>&1 | grep -qi 'no errors'; then
-    printf '      ACCEPTED: layerrule = %s\n' "$candidate"
-  else
-    printf '      rejected: layerrule = %s\n' "$candidate"
-  fi
-  # Clear whatever the attempt left behind before trying the next one.
-  hyprctl_user reload >/dev/null 2>&1
-done
+# Settling it needs a real parse - a candidate written into a sourced file and
+# the config reloaded - which is worth doing when blur is worth re-adding, and
+# is recorded as a gap until then.
 
 # The wallpaper: a link the user owns, so a theme change needs no root.
 check "the wallpaper link resolves"  test -f "$AW_HOME/.local/state/archwright/wallpaper.png"
