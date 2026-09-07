@@ -1,0 +1,23 @@
+# Lazy agent launchers for the AI layer.
+#
+# Three TAB-separated fields:
+#
+#   <command name>	<mise spec>	<executable inside the package>
+#
+# The installer generates one stub script per row. Nothing is downloaded at
+# install time - mise resolves and caches the package the first time the stub
+# is invoked, so shipping several costs nothing but a few hundred bytes each.
+#
+# WHAT BELONGS HERE
+#
+# Only tools Arch does NOT package. Anything in the official repositories goes
+# in manifest/core.packages instead, where it gets pacman's signature checks
+# and updates - that is why the GitHub CLI is not here (D18).
+#
+# Every spec below was verified against the npm registry on 2026-09-07,
+# including that the package actually declares the executable named in the
+# third field. pi is absent because it declares none (D17).
+claude	npm:@anthropic-ai/claude-code	claude
+codex	npm:@openai/codex	codex
+opencode	npm:opencode-ai	opencode
+crush	npm:@charmland/crush	crush

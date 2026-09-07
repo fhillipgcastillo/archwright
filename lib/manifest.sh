@@ -15,6 +15,19 @@ aw_manifest_subvolumes() {
   grep -v '^[[:space:]]*#' "$file" | grep -v '^[[:space:]]*$' || true
 }
 
+# Agent identities for the AI layer: three tab-separated fields, being the
+# command name, the mise spec that provides it, and the executable inside that
+# package. Which agents exist is data, exactly like which packages exist (D9),
+# so lib/70-ai.sh never names one.
+#
+# Comments and blank lines are dropped; everything else is emitted verbatim so
+# the tabs survive into cut and read.
+aw_manifest_agents() {
+  local file="$1"
+  [ -f "$file" ] || aw_die "manifest not found: $file"
+  grep -v '^[[:space:]]*#' "$file" | grep -v '^[[:space:]]*$' || true
+}
+
 # Group-aware readers for manifest/extras.packages.
 #
 # The file is grouped by job:

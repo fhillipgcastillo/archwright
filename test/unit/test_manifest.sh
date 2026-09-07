@@ -177,4 +177,62 @@ if printf '%s
   _fail "core.packages" "vim ships alongside neovim - pick one (spec section 3)"
 else _pass; fi
 
+# --- the agent manifest (milestone 5) ----------------------------------------
+atmp="$(mktemp -d)"
+printf '%s\n' \
+  '# lazy agent launchers' \
+  '' \
+  'claude	npm:@anthropic-ai/claude-code	claude' \
+  'codex	npm:@openai/codex	codex' > "$atmp/a.tsv"
+
+assert_eq "$(aw_manifest_agents "$atmp/a.tsv" | wc -l | tr -d ' ')" "2" \
+  "agents: two data rows"
+assert_eq "$(aw_manifest_agents "$atmp/a.tsv" | head -1 | cut -f1)" "claude" \
+  "agents: first field is the command name"
+assert_eq "$(aw_manifest_agents "$atmp/a.tsv" | head -1 | cut -f2)" "npm:@anthropic-ai/claude-code" \
+  "agents: second field is the mise spec, scope and all"
+assert_eq "$(aw_manifest_agents "$atmp/a.tsv" | head -1 | cut -f3)" "claude" \
+  "agents: third field is the executable inside the package"
+if aw_manifest_agents "$atmp/a.tsv" | grep -q 'lazy agent launchers'; then
+  _fail "agents" "a comment line leaked into the data"
+else _pass; fi
+assert_fails aw_manifest_agents "$atmp/does-not-exist" "missing agent manifest fails loudly"
+rm -rf "$atmp"
+
+# The shipped manifest. Structural assertions only - a row count would pass on
+# corrupted data.
+agents="$ROOT/manifest/agents.tsv"
+while IFS=$'\t' read -r a_name a_spec a_bin a_extra; do
+  if [ -n "${a_extra:-}" ]; then
+    _fail "agents.tsv" "row [$a_name] has more than three fields"
+  else _pass; fi
+  if printf '%s' "$a_name" | grep -qxE '[a-z][a-z0-9-]*'; then _pass
+  else _fail "agents.tsv" "bad command name: [$a_name]"; fi
+  # The spec must name a backend explicitly. A bare package name makes mise
+  # guess which registry to use, and the guess is not stable.
+  if printf '%s' "$a_spec" | grep -q '^[a-z][a-z0-9]*:'; then _pass
+  else _fail "agents.tsv" "spec [$a_spec] has no backend prefix"; fi
+  if [ -n "$a_bin" ]; then _pass
+  else _fail "agents.tsv" "row [$a_name] names no executable"; fi
+done < <(aw_manifest_agents "$agents")
+
+assert_eq "$(aw_manifest_agents "$agents" | cut -f1 | sort | uniq -d)" "" \
+  "agents.tsv: no duplicate command names"
+
+# D17: pi publishes no executable, so a stub for it would fail on first run.
+if aw_manifest_agents "$agents" | cut -f1 | grep -qx 'pi'; then
+  _fail "agents.tsv" "pi has no installable CLI - see D17"
+else _pass; fi
+
+# D18: gh is packaged by Arch. Stubs exist only for what Arch does not package.
+if aw_manifest_agents "$agents" | cut -f1 | grep -qx 'gh'; then
+  _fail "agents.tsv" "gh belongs in core.packages as github-cli - see D18"
+else _pass; fi
+
+# Milestone 5 adds mise and the GitHub CLI to core.
+for required in mise github-cli; do
+  if printf '%s\n' "$pkgs" | grep -qx "$required"; then _pass
+  else _fail "core.packages" "AI layer package missing: $required"; fi
+done
+
 finish_tests

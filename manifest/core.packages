@@ -109,3 +109,9 @@ fastfetch
 tldr
 jq
 unzip
+
+## Group: ai
+# mise backs the lazy agent stubs; github-cli is packaged by Arch so it is a
+# real package rather than a stub (D18).
+mise
+github-cli
