@@ -115,3 +115,9 @@ unzip
 # real package rather than a stub (D18).
 mise
 github-cli
+# Every agent stub resolves through mise npm backend, which needs a node
+# toolchain. Letting mise bootstrap its own would make the first launch of the
+# first agent a large silent download at the worst possible moment, and put a
+# runtime outside pacman reach. Arch packages both, so use those.
+nodejs
+npm

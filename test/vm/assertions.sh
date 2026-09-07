@@ -233,6 +233,104 @@ check "selected extra installed"    pacman -Q docker
 check "unselected extra absent"     sh -c '! pacman -Q libreoffice-fresh >/dev/null 2>&1'
 check "multilib not enabled"        sh -c '! grep -qE "^\[multilib\]" /etc/pacman.conf'
 
+# --- Milestone 5: the AI layer ----------------------------------------------
+AW_HOME="/home/$AW_USER"
+
+check "archwright command installed" test -x /usr/bin/archwright
+check "archwright help exits 0"      archwright help
+exits_two() { archwright no-such-subcommand >/dev/null 2>&1; [ "$?" -eq 2 ]; }
+check "unknown subcommand exits 2"   exits_two
+
+check "mise installed"               test -x /usr/bin/mise
+check "github cli installed"         test -x /usr/bin/gh
+check "node toolchain installed"     sh -c 'command -v node npm >/dev/null'
+
+# The stub tree is ours; the copies in the user's ~/.local/bin are what
+# actually runs. The names are written out here rather than read from the
+# manifest on purpose: an assertion that reads the same data it is checking
+# passes when a row is deleted.
+check "stub tree installed"          test -d /usr/share/archwright/agent-stubs
+for agent in claude codex opencode crush; do
+  check "launcher seeded: $agent"    test -x "$AW_HOME/.local/bin/$agent"
+done
+check "launcher calls mise"          sh -c 'grep -q "exec mise exec" '"$AW_HOME"'/.local/bin/claude'
+
+owned_by_user() { [ "$(stat -c %U "$1")" = "$AW_USER" ]; }
+check "launchers belong to the user" owned_by_user "$AW_HOME/.local/bin/claude"
+check "state dir belongs to the user" owned_by_user "$AW_HOME/.local/state/archwright"
+
+# The shared skill has to be reachable THROUGH the symlink. Checking that a
+# symlink exists would pass on a dangling one, which is the failure that
+# actually happens when a path changes.
+check "shared skill installed"       test -f "$AW_HOME/.local/share/archwright/agent-skills/archwright/SKILL.md"
+check "skill link is a symlink"      test -L "$AW_HOME/.claude/skills/archwright"
+check "skill link resolves"          test -f "$AW_HOME/.claude/skills/archwright/SKILL.md"
+
+# Login-shell wiring. A LOGIN shell, not this one: /etc/profile.d is only read
+# at login, so checking the current environment would test nothing.
+#
+# The probe is a file rather than `bash -lc '...'` so nothing in it has to be
+# quoted against two levels of shell at once. It runs once and the three
+# assertions read its output.
+cat > /tmp/aw-login-probe.sh <<'PROBE'
+printf 'PATH=%s\n' "$PATH"
+printf 'LOCALBIN=%s\n' "$(printf '%s' "$PATH" | tr ':' '\n' | grep -c -x "$HOME/.local/bin")"
+if type a >/dev/null 2>&1; then printf 'A=yes\n'; else printf 'A=no\n'; fi
+PROBE
+chmod 0644 /tmp/aw-login-probe.sh
+login_probe="$(runuser -u "$AW_USER" -- bash -l /tmp/aw-login-probe.sh 2>/dev/null)"
+
+# A function, not `sh -c`: a child shell would see neither $login_probe (never
+# exported) nor this function - the mistake caught in milestone 2.
+probe_says() { case "$login_probe" in *"$1"*) return 0 ;; esac; return 1; }
+
+# Exactly once. Zero means the profile script never ran; two means it appends
+# on every login and PATH grows without bound.
+check "the local bin dir is on the login PATH exactly once" probe_says "LOCALBIN=1"
+check "the a shortcut is defined in a login shell"          probe_says "A=yes"
+
+check "agent settings seeded"        test -f "$AW_HOME/.config/archwright/agents.sh"
+# The whole point of D-divergence: unattended modes ship OFF. An uncommented
+# alias here would hand a fresh machine to an agent that never stops to ask.
+no_live_yolo() {
+  ! grep -qE '^[[:space:]]*(alias|export)[[:space:]]' "$AW_HOME/.config/archwright/agents.sh"
+}
+check "no unattended mode is enabled" no_live_yolo
+
+check "the work directory exists"    test -d "$AW_HOME/Work"
+check "a default agent is recorded"  sh -c 'grep -qx claude '"$AW_HOME"'/.local/state/archwright/default-agent'
+check "the agent keybind is seeded"  grep -q "archwright agent" "$AW_HOME/.config/hypr/shell.conf"
+
+# A stub must actually resolve its package on first invocation. This downloads
+# for real and is the slowest assertion in the file; it is also the only one
+# that proves the lazy-launcher idea works at all.
+stub_first_run() {
+  runuser -u "$AW_USER" -- env HOME="$AW_HOME" "$AW_HOME/.local/bin/crush" --version
+}
+check "a stub installs its agent on first run" stub_first_run
+
+# The sudo window. This script runs under sudo, so SUDO_USER is already the
+# real user and the drop-in is written for them - the same path a user takes.
+# The re-exec through sudo itself is not covered here, because we are already
+# root.
+SUDO_DROPIN=/etc/sudoers.d/99-archwright-sudo-window
+rm -f "$SUDO_DROPIN"
+archwright sudo-window 1 >/dev/null 2>&1
+check "sudo window is granted"       test -f "$SUDO_DROPIN"
+check "the window names the user"    grep -q "^$AW_USER " "$SUDO_DROPIN"
+# The drop-in must not break sudo for the whole machine. A malformed file here
+# is unrecoverable from a running session, so this is the assertion that
+# matters most in the file.
+check "sudoers still parses"         visudo -c
+check "the revert timer is armed"    sh -c 'systemctl is-active archwright-sudo-window-revert.timer >/dev/null'
+
+# Auto-revert is the property that makes the window safe to ship: the grant
+# must disappear even though nothing is left running to remove it. Waiting is
+# the only honest way to test that.
+sleep 75
+check "the window reverted on its own" sh -c "! test -f $SUDO_DROPIN"
+check "sudoers still parses after the revert" visudo -c
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then

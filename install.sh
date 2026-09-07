@@ -23,6 +23,8 @@ export LC_ALL=C
 . "$AW_ROOT/lib/partition.sh"
 # shellcheck source=lib/config.sh
 . "$AW_ROOT/lib/config.sh"
+# shellcheck source=lib/agents.sh
+. "$AW_ROOT/lib/agents.sh"
 # shellcheck source=lib/resume.sh
 . "$AW_ROOT/lib/resume.sh"
 
@@ -38,7 +40,7 @@ Usage: install.sh --answers <file> [--phase <name>] [--yes]
 
   --answers <file>  Unattended answer file (required).
   --phase <name>    Run a single phase: preflight, disk, base, boot, session,
-                    shell, apps.
+                    shell, apps, ai.
                     Default: all of them, in order.
   --yes             Do not prompt before erasing the target disk.
   --resume          Continue an install that was interrupted. Reopens the
@@ -112,5 +114,6 @@ run_phase boot      30-boot.sh
 run_phase session   40-session.sh
 run_phase shell     50-shell.sh
 run_phase apps      60-apps.sh
+run_phase ai        70-ai.sh
 
 aw_log info "installation complete"

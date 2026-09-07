@@ -594,7 +594,7 @@ def phase_boot():
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400),
                                ("session", 1200), ("shell", 900),
-                               ("apps", 1800)):
+                               ("apps", 1800), ("ai", 900)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"phase {phase} failed with status {rc}")
@@ -784,7 +784,7 @@ def phase_all():
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400),
                                ("session", 1200), ("shell", 900),
-                               ("apps", 1800)):
+                               ("apps", 1800), ("ai", 900)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"install phase {phase} failed with status {rc}")
@@ -830,7 +830,12 @@ def phase_all():
             die("could not fetch the assertion script into the installed system")
 
         rc, out = ser.run(
-            "echo testpassword | sudo -S bash /tmp/assertions.sh 2>&1", 180)
+            # Generous, and deliberately so. The milestone 5 assertions do two
+            # slow things on purpose: one stub resolves its package for real
+            # over the network, and the sudo window is waited out rather than
+            # inspected, because auto-revert is the property that makes it
+            # safe to ship.
+            "echo testpassword | sudo -S bash /tmp/assertions.sh 2>&1", 900)
         for line in out.splitlines():
             line = line.strip()
             if line.startswith(("ok ", "FAIL", "  ")) or "ASSERTIONS" in line:
