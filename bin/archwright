@@ -88,12 +88,14 @@ commands:
   agent [args...]              launch the default agent, forwarding arguments
   default agent [name]         show or set the default agent
   mise-install <spec> [name]   add a lazy launcher for any mise-installable CLI
+  theme [show|list|set <name>] show, list or change the colour theme
   sudo-window [minutes]        grant passwordless sudo for a while (default 15)
   version                      print the installed Archwright version
   help                         this text
 
 examples:
   archwright default agent codex
+  archwright theme set tokyonight
   archwright mise-install npm:@scope/tool tool
   archwright sudo-window 30
 EOF
@@ -207,6 +209,101 @@ exec mise exec "$spec" -- $name "\$@"
 EOF
   chmod 0755 "$AW_BIN_DIR/$name" || die "could not make $name executable"
   printf 'added %s -> %s\n' "$AW_BIN_DIR/$name" "$spec"
+}
+
+# --- theming -----------------------------------------------------------------
+#
+# Seven palettes ship. Changing between them rewrites only the colour files this
+# project owns; hyprland.conf, waybar/style.css, foot.ini, the mako config and
+# fuzzel.ini are yours and are never touched.
+#
+# This is the one subcommand that sources the installed library rather than
+# carrying its own copy of the logic. The validators are duplicated because
+# they guard input this command handles before anything is installed; a theme
+# change happens on a machine that by definition has /usr/share/archwright on
+# it, and a second copy of a template renderer is exactly the drift the
+# duplicated validators needed a test to police.
+AW_THEME_LIB="$AW_PREFIX/lib"
+AW_PALETTES="$AW_PREFIX/palettes"
+AW_WALLPAPERS="$AW_PREFIX/wallpapers"
+
+current_theme() {
+  local t
+  t="$(head -1 "$AW_STATE_DIR/theme" 2>/dev/null | tr -d '[:space:]')"
+  if is_command_name "$t"; then printf '%s' "$t"; else printf 'mocha'; fi
+}
+
+cmd_theme() {
+  local sub="${1:-show}"
+  case "$sub" in
+    show)
+      local t; t="$(current_theme)"
+      local name
+      name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*//p' \
+                "$AW_PALETTES/$t.palette" 2>/dev/null | head -1)"
+      if [ -n "$name" ]; then printf '%s (%s)\n' "$t" "$name"
+      else printf '%s\n' "$t"; fi
+      ;;
+    list)
+      [ -d "$AW_PALETTES" ] || die "no palettes installed at $AW_PALETTES"
+      local cur f id name
+      cur="$(current_theme)"
+      for f in "$AW_PALETTES"/*.palette; do
+        [ -f "$f" ] || continue
+        id="${f##*/}"; id="${id%.palette}"
+        name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*//p' "$f" | head -1)"
+        if [ "$id" = "$cur" ]; then printf '* %-12s %s\n' "$id" "$name"
+        else printf '  %-12s %s\n' "$id" "$name"; fi
+      done
+      ;;
+    set)
+      shift
+      local want="${1-}"
+      [ -n "$want" ] || usage_error "theme set: which theme? try: archwright theme list"
+      [ "$#" -le 1 ] || usage_error "theme set: too many arguments"
+      is_command_name "$want" \
+        || usage_error "theme set: [$want] is not a theme name"
+      [ -f "$AW_PALETTES/$want.palette" ] \
+        || die "no such theme: $want. Try: archwright theme list"
+      [ -r "$AW_THEME_LIB/theme.sh" ] \
+        || die "the theme library is missing from $AW_THEME_LIB"
+
+      # shellcheck source=/dev/null
+      . "$AW_THEME_LIB/common.sh"
+      # shellcheck source=/dev/null
+      . "$AW_THEME_LIB/theme.sh"
+
+      aw_theme_load "$AW_PALETTES/$want.palette"
+      # Read back by aw_theme_render inside the library sourced just above, not
+      # used in this file.
+      # shellcheck disable=SC2034
+      AW_PAL_home="$HOME"
+      local n
+      n="$(aw_theme_generate "$AW_PREFIX/theme/theme-files.tsv" \
+             "$AW_PREFIX/theme" "$HOME" theme)"
+      [ "$n" -gt 0 ] || die "no colour files were written"
+
+      mkdir -p "$AW_STATE_DIR"
+      ln -sfn "$AW_WALLPAPERS/$want.png" "$AW_STATE_DIR/wallpaper.png" \
+        || die "could not point the wallpaper at $want"
+      printf '%s\n' "$want" > "$AW_STATE_DIR/theme" \
+        || die "could not record the theme"
+
+      # Reload what can be reloaded. Each is best-effort: running this outside a
+      # graphical session is legitimate, and none of these failing means the
+      # theme was not written.
+      hyprctl reload >/dev/null 2>&1
+      makoctl reload >/dev/null 2>&1
+      systemctl --user restart archwright-swaybg.service >/dev/null 2>&1
+      systemctl --user restart waybar.service >/dev/null 2>&1
+      archwright-apply-gtk-theme >/dev/null 2>&1
+
+      printf 'theme is now %s (%s)\n' "$want" "${AW_PAL_name:-$want}"
+      # foot rereads nothing, by design - it has no reload mechanism at all.
+      printf 'already-open terminals keep the old colours; new ones pick it up.\n'
+      ;;
+    *) usage_error "theme: unknown action [$sub] (show, list, set)" ;;
+  esac
 }
 
 # --- the sudo window ---------------------------------------------------------
@@ -388,6 +485,7 @@ main() {
     agent)            cmd_agent "$@" ;;
     default)          cmd_default "$@" ;;
     mise-install)     cmd_mise_install "$@" ;;
+    theme)            cmd_theme "$@" ;;
     sudo-window)      cmd_sudo_window "$@" ;;
     *)                usage_error "unknown command [$cmd]" ;;
   esac

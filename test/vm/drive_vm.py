@@ -592,7 +592,7 @@ def phase_boot():
     try:
         ser, _, _ = boot_live(stack)
         for phase, timeout in (("preflight", 300), ("disk", 900),
-                               ("base", 2400), ("boot", 2400),
+                               ("base", 2400), ("boot", 2400), ("theme", 600),
                                ("session", 1200), ("shell", 900),
                                ("apps", 1800), ("ai", 900)):
             rc, _ = run_installer(ser, phase, timeout)
@@ -782,7 +782,7 @@ def phase_all():
         wait_for_live_shell(ser)
         guest_fetch_repo(ser, port)
         for phase, timeout in (("preflight", 300), ("disk", 900),
-                               ("base", 2400), ("boot", 2400),
+                               ("base", 2400), ("boot", 2400), ("theme", 600),
                                ("session", 1200), ("shell", 900),
                                ("apps", 1800), ("ai", 900)):
             rc, _ = run_installer(ser, phase, timeout)

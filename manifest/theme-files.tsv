@@ -1,0 +1,22 @@
+# Which template becomes which file, relative to the tree it is generated into.
+#
+# Two kinds of row.
+#
+# THEME-OWNED files hold only colours and are regenerated on every theme
+# change. Nothing a user would edit lives in them.
+#
+# USER-OWNED files carry structure - keybinds, layout, sizes - and are seeded
+# once and then never touched again. They are rendered rather than copied for
+# one reason: foot and fuzzel document `include` as taking an absolute path, so
+# the include line has to carry the real home directory.
+#
+# <template>	<destination>	<owner>
+hypr-colors.conf.in	.config/hypr/colors.conf	theme
+waybar-colors.css.in	.config/waybar/colors.css	theme
+foot-colors.ini.in	.config/foot/colors.ini	theme
+mako-colors.in	.config/mako/colors	theme
+fuzzel-colors.ini.in	.config/fuzzel/colors.ini	theme
+gtk3-settings.ini.in	.config/gtk-3.0/settings.ini	theme
+gtk4-settings.ini.in	.config/gtk-4.0/settings.ini	theme
+foot.ini.in	.config/foot/foot.ini	user
+fuzzel.ini.in	.config/fuzzel/fuzzel.ini	user

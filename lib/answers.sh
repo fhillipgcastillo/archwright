@@ -23,6 +23,7 @@ aw_answers_reset() {
   AW_SERIAL_CONSOLE="0"
   AW_AUTOLOGIN="0"
   AW_EXTRAS=""
+  AW_THEME="mocha"
 }
 aw_answers_reset
 
@@ -78,6 +79,7 @@ aw_answers_load() {
       SERIAL_CONSOLE)  AW_SERIAL_CONSOLE="$value" ;;
       AUTOLOGIN)       AW_AUTOLOGIN="$value" ;;
       EXTRAS)          AW_EXTRAS="$value" ;;
+      THEME)           AW_THEME="$value" ;;
       *) aw_log warn "unknown answer key ignored: $key" ;;
     esac
   done < "$file"
@@ -119,6 +121,13 @@ aw_answers_validate() {
 
   _aw_check KEYMAP "$AW_KEYMAP" '^[A-Za-z0-9._-]+$' \
     'a console keymap name such as us' || ok=1
+
+  # The palette id becomes a filename under manifest/palettes/, so it is
+  # constrained the same way every other path-forming value is. Whether that
+  # palette exists is checked by the theme phase, which can see the directory;
+  # this only rules out a value that could escape it.
+  _aw_check THEME "$AW_THEME" '^[a-z][a-z0-9-]*$' \
+    'a palette id such as mocha - see manifest/palettes/' || ok=1
 
   _aw_check SERIAL_CONSOLE "$AW_SERIAL_CONSOLE" '^[01]$' \
     '0 or 1' || ok=1

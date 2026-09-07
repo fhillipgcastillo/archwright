@@ -12,3 +12,8 @@ style=beam
 
 [scrollback]
 lines=10000
+
+# Colours live in their own file so changing theme does not rewrite this one.
+# foot documents include as taking an absolute path, which is why this line is
+# generated rather than shipped as a literal.
+include=@home@/.config/foot/colors.ini

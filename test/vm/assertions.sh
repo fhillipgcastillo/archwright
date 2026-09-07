@@ -483,6 +483,122 @@ for stub in /usr/share/archwright/agent-stubs/*; do
     npm_declares_bin "$stub_spec" "$stub_bin"
 done
 
+# --- Milestone 6: theming ----------------------------------------------------
+#
+# The point of these is that a colour actually reaches the running system.
+# Checking that a file contains a hex string proves nothing - the file could be
+# ignored, the include could be silently dropped, and the desktop would look
+# exactly as plain as before while the gate stayed green. So where a component
+# can be asked what colour it is using, it is asked.
+
+check "theming packages installed"  sh -c 'pacman -Q adw-gtk-theme papirus-icon-theme >/dev/null'
+check "palettes installed"          test -f /usr/share/archwright/palettes/mocha.palette
+palette_count_is() {
+  [ "$(find /usr/share/archwright/palettes -name '*.palette' | wc -l)" -eq "$1" ]
+}
+check "all seven palettes shipped"  palette_count_is 7
+check "templates installed"         test -f /usr/share/archwright/theme/theme-files.tsv
+check "theme library installed"     test -f /usr/share/archwright/lib/theme.sh
+check "wallpapers installed"        test -f /usr/share/archwright/wallpapers/mocha.png
+check "the selected theme is recorded" \
+  sh -c 'grep -qx mocha '"$AW_HOME"'/.local/state/archwright/theme'
+
+# The generated colour files.
+for f in hypr/colors.conf waybar/colors.css foot/colors.ini mako/colors \
+         fuzzel/colors.ini gtk-3.0/settings.ini gtk-4.0/settings.ini; do
+  check "colour file generated: $f" test -f "$AW_HOME/.config/$f"
+done
+check "no placeholder survived generation" \
+  sh -c '! grep -rlE "@[a-z][a-z0-9_]*@" '"$AW_HOME"'/.config/hypr/colors.conf '"$AW_HOME"'/.config/waybar/colors.css '"$AW_HOME"'/.config/foot/colors.ini 2>/dev/null | grep -q .'
+check "the palette reached the colour file" \
+  grep -q "cba6f7" "$AW_HOME/.config/hypr/colors.conf"
+
+# The user-owned configs carry the include, with an absolute path - foot and
+# fuzzel both document that they will not accept anything else.
+check "foot.ini includes its colours" \
+  grep -qx "include=$AW_HOME/.config/foot/colors.ini" "$AW_HOME/.config/foot/foot.ini"
+check "fuzzel.ini includes its colours" \
+  grep -qx "include=$AW_HOME/.config/fuzzel/colors.ini" "$AW_HOME/.config/fuzzel/fuzzel.ini"
+check "mako config includes its colours" \
+  grep -q "include=" "$AW_HOME/.config/mako/config"
+check "hyprland sources its colours" \
+  grep -q "source = ~/.config/hypr/colors.conf" "$AW_HOME/.config/hypr/hyprland.conf"
+check "waybar imports its colours" \
+  grep -q 'colors.css' "$AW_HOME/.config/waybar/style.css"
+
+# Each of these parses its own config and says so. This is what catches a
+# broken include, which is otherwise invisible until first login.
+check "foot accepts the themed config" \
+  runuser -u "$AW_USER" -- env HOME="$AW_HOME" foot --check-config
+check "fuzzel accepts the themed config" \
+  runuser -u "$AW_USER" -- env HOME="$AW_HOME" fuzzel --check-config
+
+# The compositor is the real oracle: ask the running Hyprland what colour its
+# active border is, rather than trusting that the file was read.
+hypr_border_is_accent() {
+  hyprctl_user getoption general:col.active_border | grep -qi "cba6f7"
+}
+check "hyprland is using the palette's accent" hypr_border_is_accent
+
+hypr_rounding_applied() {
+  hyprctl_user getoption decoration:rounding | grep -qE "int: 10"
+}
+check "the rounded-corner look applied" hypr_rounding_applied
+
+# The wallpaper: a link the user owns, so a theme change needs no root.
+check "the wallpaper link resolves"  test -f "$AW_HOME/.local/state/archwright/wallpaper.png"
+check "it points into the shared tree" \
+  sh -c 'readlink '"$AW_HOME"'/.local/state/archwright/wallpaper.png | grep -q "^/usr/share/archwright/wallpapers/mocha.png$"'
+check "swaybg is running with an image" \
+  sh -c 'pgrep -a swaybg | grep -q -- "--image"'
+
+# --- changing theme after install --------------------------------------------
+#
+# Seven palettes only matter if switching between them works and does not
+# destroy the user's own configuration on the way.
+foot_ini_before="$(md5sum "$AW_HOME/.config/foot/foot.ini" 2>/dev/null | cut -d' ' -f1)"
+style_before="$(md5sum "$AW_HOME/.config/waybar/style.css" 2>/dev/null | cut -d' ' -f1)"
+printf '\n/* a line the user added */\n' >> "$AW_HOME/.config/waybar/style.css"
+style_edited="$(md5sum "$AW_HOME/.config/waybar/style.css" | cut -d' ' -f1)"
+
+# Functions, not `sh -c`: a child shell sees neither these variables nor
+# aw_user_run, which is the mistake milestone 2 already made once.
+theme_list_marks_current() { aw_user_run archwright theme list | grep -q '^\* mocha'; }
+theme_show_names_it()      { aw_user_run archwright theme show | grep -q mocha; }
+unknown_theme_refused()    { ! aw_user_run archwright theme set nosuchtheme >/dev/null 2>&1; }
+
+check "theme list marks the current one" theme_list_marks_current
+check "theme show names it"              theme_show_names_it
+check "an unknown theme is refused"      unknown_theme_refused
+
+check "theme set succeeds" \
+  runuser -u "$AW_USER" -- env HOME="$AW_HOME" archwright theme set tokyonight
+check "the colour file changed" \
+  grep -q "7aa2f7" "$AW_HOME/.config/hypr/colors.conf"
+check "the recorded theme changed" \
+  sh -c 'grep -qx tokyonight '"$AW_HOME"'/.local/state/archwright/theme'
+check "the wallpaper followed" \
+  sh -c 'readlink '"$AW_HOME"'/.local/state/archwright/wallpaper.png | grep -q "tokyonight.png$"'
+
+# The whole reason the colour files are separate: a theme change must not touch
+# a file the user owns.
+digest() { md5sum "$1" | cut -d' ' -f1; }
+unchanged() { [ "$(digest "$1")" = "$2" ]; }
+changed()   { [ "$(digest "$1")" != "$2" ]; }
+
+check "the user's foot.ini was not rewritten" \
+  unchanged "$AW_HOME/.config/foot/foot.ini" "$foot_ini_before"
+check "the user's edit to style.css survived" \
+  unchanged "$AW_HOME/.config/waybar/style.css" "$style_edited"
+check "and it is not the shipped file either" \
+  changed "$AW_HOME/.config/waybar/style.css" "$style_before"
+
+# Put it back, so later assertions and any manual poke around the VM see the
+# documented default.
+runuser -u "$AW_USER" -- env HOME="$AW_HOME" archwright theme set mocha >/dev/null 2>&1
+check "switching back works too" \
+  grep -q "cba6f7" "$AW_HOME/.config/hypr/colors.conf"
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then

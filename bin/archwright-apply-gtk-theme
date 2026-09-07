@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Apply the GTK side of the current theme, inside a running session.
+#
+# WHY THIS IS NOT JUST A CONFIG FILE
+#
+# GTK3 reads ~/.config/gtk-3.0/settings.ini, which the theme phase writes. But
+# libadwaita - which is what Nautilus, Evince and every modern GNOME app
+# actually use - ignores that file for light/dark and accent. It reads
+# org.gnome.desktop.interface over D-Bus.
+#
+# So there is no file the installer can write from a chroot that makes those
+# applications match. It needs a live session bus, which only exists once
+# somebody has logged in. Hence a small script, run from the compositor's
+# autostart and again by `archwright theme set`.
+#
+# Idempotent and quiet: it is run on every login.
+set -uo pipefail
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/archwright"
+PALETTES=/usr/share/archwright/palettes
+
+theme="$(head -1 "$STATE/theme" 2>/dev/null | tr -d '[:space:]')"
+[ -n "$theme" ] || theme=mocha
+
+palette="$PALETTES/$theme.palette"
+if [ ! -r "$palette" ]; then
+  printf 'archwright-apply-gtk-theme: no palette for %s\n' "$theme" >&2
+  exit 1
+fi
+
+# The libadwaita accent is a NAME from a fixed vocabulary, not a hex value, so
+# every palette carries the nearest one.
+accent="$(sed -n 's/^[[:space:]]*gtk_accent[[:space:]]*=[[:space:]]*//p' "$palette" | head -1)"
+case "$accent" in
+  blue|teal|green|yellow|orange|red|pink|purple|slate) ;;
+  *) accent=blue ;;
+esac
+
+# A light palette must not be forced into dark, or every GTK application ends
+# up inverted relative to the terminal beside it. 'latte' is the light one; the
+# test is on the palette's own base colour rather than on its name, so a new
+# light palette works without editing this script.
+base="$(sed -n 's/^[[:space:]]*base[[:space:]]*=[[:space:]]*#//p' "$palette" | head -1)"
+scheme=prefer-dark
+gtk3=adw-gtk3-dark
+icons=Papirus-Dark
+if [ -n "$base" ]; then
+  r=$((16#${base:0:2})); g=$((16#${base:2:2})); b=$((16#${base:4:2}))
+  # Rec. 601 luma. Anything above mid-grey is a light palette.
+  if [ $(( (r * 299 + g * 587 + b * 114) / 1000 )) -gt 127 ]; then
+    scheme=prefer-light
+    gtk3=adw-gtk3
+    icons=Papirus-Light
+  fi
+fi
+
+command -v gsettings >/dev/null 2>&1 || {
+  printf 'archwright-apply-gtk-theme: gsettings not found\n' >&2
+  exit 1
+}
+
+iface=org.gnome.desktop.interface
+gsettings set "$iface" color-scheme "$scheme"      2>/dev/null
+gsettings set "$iface" gtk-theme    "$gtk3"        2>/dev/null
+gsettings set "$iface" icon-theme   "$icons"       2>/dev/null
+gsettings set "$iface" cursor-theme "Adwaita"      2>/dev/null
+gsettings set "$iface" cursor-size  24             2>/dev/null
+# accent-color landed in GNOME 47 / libadwaita 1.6; older schemas do not have
+# the key, and setting a key a schema lacks is a hard error rather than a no-op.
+if gsettings writable "$iface" accent-color >/dev/null 2>&1; then
+  gsettings set "$iface" accent-color "$accent" 2>/dev/null
+fi
+
+exit 0

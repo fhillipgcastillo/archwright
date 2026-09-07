@@ -121,3 +121,9 @@ github-cli
 # runtime outside pacman reach. Arch packages both, so use those.
 nodejs
 npm
+
+## Group: theme
+# Styling is not optional: without these the GTK applications look like a
+# different decade from the rest of the desktop. Both are in extra.
+adw-gtk-theme
+papirus-icon-theme

@@ -1,8 +1,14 @@
 # swaybg ships no systemd unit of its own, so Archwright supplies one.
 #
-# A solid colour rather than an image: shipping a wallpaper means shipping a
-# binary asset, and the theming milestone will drive this from the palette
-# anyway.
+# The wallpaper is generated from the selected palette and installed to
+# %h/.local/state/archwright/wallpaper.png, which `archwright theme` points
+# at whichever palette is in use. So a theme change swaps the background by
+# replacing a symlink and restarting this unit - no image is ever copied into
+# the user's home, and nothing here needs editing.
+#
+# --mode fill scales the image to the display. The generated wallpapers are
+# deliberately small (1280x720) because they are smooth gradients: the
+# upscaling is invisible, and it removes the 8-bit banding for free.
 [Unit]
 Description=Wallpaper (swaybg)
 PartOf=archwright-shell.target
@@ -10,10 +16,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-# The colour is quoted: systemd only treats '#' as a comment at the start of a
-# line, but an unquoted '#1d2021' here is the kind of thing that silently
-# becomes an empty argument on some parser or other.
-ExecStart=/usr/bin/swaybg --color "#1d2021"
+ExecStart=/usr/bin/swaybg --mode fill --image %h/.local/state/archwright/wallpaper.png
 Restart=on-failure
 RestartSec=2
 

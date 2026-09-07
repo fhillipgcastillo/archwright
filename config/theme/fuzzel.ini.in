@@ -1,0 +1,16 @@
+# Archwright default launcher.
+# Seeded into ~/.config/fuzzel/ on first install; yours thereafter.
+font=JetBrainsMono Nerd Font:size=12
+lines=12
+width=40
+horizontal-pad=16
+vertical-pad=12
+inner-pad=4
+
+[border]
+width=2
+radius=8
+
+# Colours live in their own file so changing theme does not rewrite this one.
+# fuzzel documents include as taking an absolute path.
+include=@home@/.config/fuzzel/colors.ini

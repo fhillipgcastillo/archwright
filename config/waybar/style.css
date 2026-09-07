@@ -1,46 +1,140 @@
-/* Archwright default bar styling. Square, flat, no rounding - matching the
-   compositor's own look-and-feel decision (no blur, no shadows, square
-   corners). The theming milestone will generate these colours from a palette;
-   until then they are hardcoded here. */
+/* Archwright default bar styling.
+ *
+ * Colours come from colors.css, generated from the selected palette and
+ * regenerated whenever the theme changes. THIS file is yours: it is seeded once
+ * and never rewritten, so what you change here survives both an update and a
+ * theme switch.
+ *
+ * The import is relative - GTK resolves it against this file's own directory.
+ */
+@import url("colors.css");
+
 * {
   font-family: "JetBrainsMono Nerd Font", monospace;
   font-size: 13px;
   border: none;
   border-radius: 0;
   min-height: 0;
+  box-shadow: none;
+  text-shadow: none;
 }
 
+/* The bar surface is transparent on purpose: Hyprland blurs this layer, and
+   painting an opaque background over it would throw that away. The visible
+   panels are the three module groups below, which float as separate pills
+   rather than one welded strip. */
 window#waybar {
-  background: #1d2021;
-  color: #ebdbb2;
+  background: transparent;
+  color: @aw_text;
 }
 
-/* The launcher button. Slightly wider padding than the workspace buttons so
-   it reads as a distinct control rather than another workspace. */
+.modules-left,
+.modules-center,
+.modules-right {
+  background: alpha(@aw_mantle, 0.80);
+  border: 1px solid alpha(@aw_surface1, 0.65);
+  border-radius: 11px;
+  margin: 5px 0 0 0;
+}
+
+.modules-left { margin-left: 7px; padding-right: 2px; }
+.modules-right { margin-right: 7px; padding-left: 2px; }
+
+/* The launcher. Wider than a workspace so it reads as its own control, and in
+   the accent so it is findable without hunting. */
 #custom-launcher {
-  padding: 0 14px;
-  color: #ebdbb2;
-  font-size: 16px;
+  padding: 0 12px 0 14px;
+  margin: 3px 1px 3px 3px;
+  color: @aw_accent;
+  font-size: 15px;
+  border-radius: 9px;
+  transition: background-color 120ms ease;
 }
 
 #custom-launcher:hover {
-  background: #3c3836;
+  background: alpha(@aw_accent, 0.16);
 }
 
+/* Workspaces as a row of pills: the active one carries the accent, one holding
+   windows is lifted off the panel, an empty one stays quiet. State is legible
+   at a glance without reading a number. */
 #workspaces button {
-  padding: 0 10px;
-  color: #928374;
+  padding: 0 9px;
+  margin: 4px 2px;
+  color: @aw_overlay;
   background: transparent;
+  border-radius: 8px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+#workspaces button.occupied {
+  color: @aw_text;
+  background: alpha(@aw_surface0, 0.85);
 }
 
 #workspaces button.active {
-  color: #ebdbb2;
-  box-shadow: inset 0 -2px #ebdbb2;
+  color: @aw_crust;
+  background: @aw_accent;
+  font-weight: bold;
 }
 
-#clock, #pulseaudio, #network, #battery, #tray {
-  padding: 0 10px;
+#workspaces button.urgent {
+  color: @aw_crust;
+  background: @aw_alt4;
 }
 
-#battery.warning  { color: #fabd2f; }
-#battery.critical { color: #fb4934; }
+#workspaces button:hover {
+  background: alpha(@aw_surface1, 0.9);
+  color: @aw_text;
+}
+
+/* Centre: the clock, which is the one thing here you read deliberately. */
+#clock {
+  color: @aw_text;
+  font-weight: bold;
+  padding: 0 16px;
+  margin: 3px;
+  font-feature-settings: "tnum";
+}
+
+/* Right: each indicator gets its own hue, so a glance tells you which one
+   moved without any of them being loud about it. */
+#pulseaudio,
+#network,
+#battery,
+#tray {
+  padding: 0 9px;
+  margin: 3px 1px;
+  color: @aw_subtext;
+  border-radius: 8px;
+}
+
+#pulseaudio { color: @aw_alt2; }
+#network    { color: @aw_alt3; }
+#battery    { color: @aw_alt1; }
+
+#battery.charging { color: @aw_alt3; }
+
+/* Under 20%, unplugged: the one element on this bar allowed to shout. */
+#battery.critical:not(.charging) {
+  color: @aw_alt4;
+  font-weight: bold;
+}
+
+#pulseaudio.muted { color: @aw_overlay; }
+#network.disconnected { color: @aw_alt4; }
+
+#tray { padding: 0 8px 0 6px; }
+#tray > .passive { -gtk-icon-effect: dim; }
+#tray > .needs-attention { -gtk-icon-effect: highlight; }
+
+tooltip {
+  background: @aw_mantle;
+  border: 1px solid @aw_surface1;
+  border-radius: 9px;
+}
+
+tooltip label {
+  color: @aw_text;
+  padding: 5px;
+}
