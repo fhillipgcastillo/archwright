@@ -89,6 +89,7 @@ commands:
   default agent [name]         show or set the default agent
   mise-install <spec> [name]   add a lazy launcher for any mise-installable CLI
   theme [show|list|set <name>] show, list or change the colour theme
+  hardware                     re-run the hardware detection scripts
   sudo-window [minutes]        grant passwordless sudo for a while (default 15)
   version                      print the installed Archwright version
   help                         this text
@@ -306,6 +307,52 @@ cmd_theme() {
   esac
 }
 
+# --- hardware ----------------------------------------------------------------
+#
+# The same scripts the installer ran, against the running system. Worth having
+# as a command rather than only as an install step: a graphics card gets
+# swapped, a machine gets a dock, an install was done before a driver existed.
+#
+# Every script is detect-then-apply and no-ops when its hardware is absent, so
+# running this on a machine where nothing has changed is safe and does nothing.
+AW_HW_SHARE="$AW_PREFIX/hardware"
+
+cmd_hardware() {
+  [ "$#" -eq 0 ] || usage_error "hardware: takes no arguments"
+  [ -d "$AW_HW_SHARE" ] || die "no hardware scripts installed at $AW_HW_SHARE"
+  [ -r "$AW_THEME_LIB/hardware.sh" ] \
+    || die "the hardware library is missing from $AW_THEME_LIB"
+
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null 2>&1 || die "hardware needs sudo or root"
+    exec sudo -- "$0" hardware
+  fi
+
+  # shellcheck source=/dev/null
+  . "$AW_THEME_LIB/common.sh"
+  # shellcheck source=/dev/null
+  . "$AW_THEME_LIB/hardware.sh"
+
+  # Empty root: these scripts act on the running system, not on a target
+  # mounted at /mnt. Read by the helpers in the library sourced above.
+  # shellcheck disable=SC2034
+  AW_HW_ROOT=""
+
+  aw_hw_mask_mkinitcpio
+  local applied rc=0
+  applied="$(aw_hw_run "$AW_HW_SHARE")" || rc=$?
+  aw_hw_unmask_mkinitcpio
+  [ "$rc" -eq 0 ] || die "a hardware script failed"
+
+  if [ "$applied" -gt 0 ]; then
+    printf 'rebuilding the initramfs\n'
+    mkinitcpio -P >/dev/null 2>&1 || die "the initramfs rebuild failed"
+    printf '%s script(s) applied. Reboot to pick up driver changes.\n' "$applied"
+  else
+    printf 'nothing to do - no script found hardware it handles.\n'
+  fi
+}
+
 # --- the sudo window ---------------------------------------------------------
 #
 # Agent work means a long run of commands that each want root. The alternatives
@@ -486,6 +533,7 @@ main() {
     default)          cmd_default "$@" ;;
     mise-install)     cmd_mise_install "$@" ;;
     theme)            cmd_theme "$@" ;;
+    hardware)         cmd_hardware "$@" ;;
     sudo-window)      cmd_sudo_window "$@" ;;
     *)                usage_error "unknown command [$cmd]" ;;
   esac

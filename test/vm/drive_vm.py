@@ -594,7 +594,8 @@ def phase_boot():
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400), ("theme", 600),
                                ("session", 1200), ("shell", 900),
-                               ("apps", 1800), ("ai", 900)):
+                               ("apps", 1800), ("ai", 900),
+                               ("hardware", 900)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"phase {phase} failed with status {rc}")
@@ -784,7 +785,8 @@ def phase_all():
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400), ("theme", 600),
                                ("session", 1200), ("shell", 900),
-                               ("apps", 1800), ("ai", 900)):
+                               ("apps", 1800), ("ai", 900),
+                               ("hardware", 900)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"install phase {phase} failed with status {rc}")

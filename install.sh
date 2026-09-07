@@ -27,6 +27,8 @@ export LC_ALL=C
 . "$AW_ROOT/lib/agents.sh"
 # shellcheck source=lib/theme.sh
 . "$AW_ROOT/lib/theme.sh"
+# shellcheck source=lib/hardware.sh
+. "$AW_ROOT/lib/hardware.sh"
 # shellcheck source=lib/resume.sh
 . "$AW_ROOT/lib/resume.sh"
 
@@ -42,7 +44,7 @@ Usage: install.sh --answers <file> [--phase <name>] [--yes]
 
   --answers <file>  Unattended answer file (required).
   --phase <name>    Run a single phase: preflight, disk, base, boot, session,
-                    theme, shell, apps, ai.
+                    theme, shell, apps, ai, hardware.
                     Default: all of them, in order.
   --yes             Do not prompt before erasing the target disk.
   --resume          Continue an install that was interrupted. Reopens the
@@ -77,7 +79,7 @@ done
 # Every phase name lives here once. Adding a run_phase line below without
 # adding it here fails at the point of use with a confusing message, so the
 # list and the runner are checked against each other by a unit test.
-AW_PHASES="preflight disk base boot theme session shell apps ai"
+AW_PHASES="preflight disk base boot theme session shell apps ai hardware"
 
 case " $AW_PHASES " in
   *" $ONLY_PHASE "*) ;;
@@ -123,5 +125,6 @@ run_phase session   40-session.sh
 run_phase shell     50-shell.sh
 run_phase apps      60-apps.sh
 run_phase ai        70-ai.sh
+run_phase hardware  85-hardware.sh
 
 aw_log info "installation complete"

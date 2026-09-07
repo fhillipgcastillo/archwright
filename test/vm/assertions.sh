@@ -626,6 +626,56 @@ runuser -u "$AW_USER" -- env HOME="$AW_HOME" archwright theme set mocha >/dev/nu
 check "switching back works too" \
   grep -q "cba6f7" "$AW_HOME/.config/hypr/colors.conf"
 
+# --- Milestone 6: hardware ---------------------------------------------------
+#
+# This VM has a virtio GPU and no battery, so every script here finds nothing.
+# That is the property being tested: the same set has to run unchanged on a
+# laptop with an NVIDIA card and in a virtual machine, and "no-ops cleanly, and
+# leaves nothing behind" is exactly what cannot be checked by reading the code.
+#
+# What real hardware does with these is NOT tested and cannot be here - see the
+# gaps table in docs/decisions.md. The detection logic is covered by unit tests
+# against fixture sysfs trees instead.
+
+check "hardware scripts installed"  test -f /usr/share/archwright/hardware/10-gpu.sh
+check "hardware library installed"  test -f /usr/share/archwright/lib/hardware.sh
+hardware_script_count_is() {
+  [ "$(find /usr/share/archwright/hardware -name '[0-9][0-9]-*.sh' | wc -l)" -eq "$1" ]
+}
+check "all three shipped"           hardware_script_count_is 3
+
+# The mask must not outlive the phase. A pacman hook left pointing at /dev/null
+# means every future kernel update silently skips the initramfs rebuild, and
+# the machine keeps booting an increasingly stale image until it does not.
+check "the mkinitcpio install hook is not masked" \
+  sh -c '! test -L /etc/pacman.d/hooks/90-mkinitcpio-install.hook'
+check "the mkinitcpio remove hook is not masked" \
+  sh -c '! test -L /etc/pacman.d/hooks/60-mkinitcpio-remove.hook'
+check "the initramfs was built"     test -s /boot/initramfs-linux.img
+
+# Nothing vendor-specific may be installed on a machine with no such vendor.
+# Installing "just in case" is the behaviour these scripts exist to avoid.
+check "no Intel driver on a virtio GPU"  sh -c '! pacman -Q vulkan-intel >/dev/null 2>&1'
+check "no AMD driver on a virtio GPU"    sh -c '! pacman -Q vulkan-radeon >/dev/null 2>&1'
+check "no NVIDIA driver on a virtio GPU" sh -c '! pacman -Q nvidia-utils >/dev/null 2>&1'
+check "no NVIDIA modprobe config"        sh -c '! test -e /etc/modprobe.d/archwright-nvidia.conf'
+# No battery in the VM, so the suspend lock must not have been installed.
+check "no suspend lock on a machine with no battery" \
+  sh -c '! test -e /etc/systemd/system/archwright-lock-before-suspend.service'
+# mesa is what actually drives this VM, and it comes from core.
+check "mesa is installed"           pacman -Q mesa
+
+# Re-running on the installed system has to work, and has to be a no-op here.
+hardware_reruns_clean() {
+  local out
+  out="$(echo testpassword | sudo -S archwright hardware 2>&1)"
+  printf '%s\n' "$out"
+  printf '%s' "$out" | grep -q 'nothing to do'
+}
+check_v "archwright hardware re-runs and finds nothing" hardware_reruns_clean
+check "re-running left no mask behind" \
+  sh -c '! test -L /etc/pacman.d/hooks/90-mkinitcpio-install.hook'
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then
