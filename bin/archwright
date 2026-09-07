@@ -91,6 +91,7 @@ commands:
   theme [show|list|set|pick]   show, list or change the colour theme
   wallpaper [show|set|reset|pick]  use your own background image
   hardware                     re-run the hardware detection scripts
+  update                       update the system, snapshotted and reversible
   sudo-window [minutes]        grant passwordless sudo for a while (default 15)
   version                      print the installed Archwright version
   help                         this text
@@ -100,6 +101,7 @@ examples:
   archwright theme pick
   archwright wallpaper set ~/Pictures/city.jpg
   archwright mise-install npm:@scope/tool tool
+  archwright update
   archwright sudo-window 30
 EOF
 }
@@ -336,6 +338,56 @@ cmd_theme() {
       ;;
     *) usage_error "theme: unknown action [$sub] (show, list, set, pick)" ;;
   esac
+}
+
+# --- updating ------------------------------------------------------------------
+#
+# The snapshot itself is not this command's job: snap-pac's pacman hooks take a
+# pre and a post snapshot around every transaction, whether you update through
+# here or type `pacman -Syu` directly. That is deliberate - a guard you can
+# forget to use is not a guard.
+#
+# What this adds is the part a bare pacman run does not do: tell you what
+# happened in snapshot terms, so rolling back is a decision you can act on
+# rather than a forensic exercise.
+cmd_update() {
+  [ "$#" -eq 0 ] || usage_error "update: takes no arguments"
+
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null 2>&1 || die "update needs sudo or root"
+    exec sudo -- "$0" update
+  fi
+
+  command -v snapper >/dev/null 2>&1 || die "snapper is not installed"
+
+  local before after
+  before="$(snapper -c root list --columns number 2>/dev/null | tail -1 | tr -d ' ')"
+
+  printf 'updating; snap-pac will snapshot around the transaction\n\n'
+  if ! pacman -Syu; then
+    printf '\nthe update failed. Nothing was rolled back automatically -\n'
+    printf 'the pre-transaction snapshot is still there if you need it:\n'
+    snapper -c root list 2>/dev/null | tail -5
+    exit 1
+  fi
+
+  after="$(snapper -c root list --columns number 2>/dev/null | tail -1 | tr -d ' ')"
+
+  printf '\n'
+  if [ -n "$after" ] && [ "$after" != "$before" ]; then
+    printf 'snapshots taken. Latest is %s.\n' "$after"
+    printf 'If this update broke something, reboot and pick the entry for\n'
+    printf 'snapshot %s or earlier from the Limine menu.\n' "$before"
+  else
+    printf 'no new snapshot - nothing was installed, or snap-pac is missing.\n'
+  fi
+
+  # The pacman hook already regenerated this. Doing it again is cheap and means
+  # the menu is right even if the hook was removed or masked.
+  if command -v archwright-limine-update >/dev/null 2>&1; then
+    archwright-limine-update >/dev/null 2>&1 \
+      || printf 'warning: could not refresh the boot menu\n' >&2
+  fi
 }
 
 # --- the wallpaper -----------------------------------------------------------
@@ -656,6 +708,7 @@ main() {
     theme)            cmd_theme "$@" ;;
     wallpaper)        cmd_wallpaper "$@" ;;
     hardware)         cmd_hardware "$@" ;;
+    update)           cmd_update "$@" ;;
     sudo-window)      cmd_sudo_window "$@" ;;
     *)                usage_error "unknown command [$cmd]" ;;
   esac

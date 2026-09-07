@@ -831,6 +831,68 @@ p2_size() {
 printf '      --- P2 package sizes (informational) ---\n'
 p2_size 2>&1 | sed 's/^/      /'
 
+# --- the update guard: snapshots that actually happen ------------------------
+#
+# Every previous gate asserted "there is a snapshot" - and there was, the one
+# the install took. Nothing asserted that a SECOND one ever appears, so the
+# machine shipped with a boot menu that would list exactly one entry forever
+# and a rollback story that was scenery. This is the loop, end to end.
+
+check "snap-pac installed"          pacman -Q snap-pac
+check "boot-menu refresh hook installed" \
+  test -f /etc/pacman.d/hooks/zzz-archwright-limine.hook
+# The hook has to sort after snap-pac's own post hook, or the menu is rebuilt
+# before the snapshot it should list exists.
+hook_sorts_after_snap_pac() {
+  [ "$(printf 'zz-snap-pac-post.hook\nzzz-archwright-limine.hook\n' \
+        | LC_ALL=C sort | tail -1)" = "zzz-archwright-limine.hook" ]
+}
+check "it sorts after snap-pac's post hook" hook_sorts_after_snap_pac
+
+# Retention. snapper's cleanup algorithms are all off by default, so a cleanup
+# timer without these deletes nothing and the disk fills quietly.
+for setting in 'NUMBER_CLEANUP="yes"' 'NUMBER_LIMIT="12"' \
+               'EMPTY_PRE_POST_CLEANUP="yes"' 'ALLOW_GROUPS="wheel"'; do
+  check "retention: $setting" grep -qx "$setting" /etc/snapper/configs/root
+done
+check "timeline creation stays off" grep -qx 'TIMELINE_CREATE="no"' /etc/snapper/configs/root
+check "the cleanup timer is enabled" \
+  sh -c 'systemctl is-enabled snapper-cleanup.timer | grep -qx enabled'
+
+# A wheel user can inspect snapshots without sudo - otherwise "check what
+# changed" needs a password every time and nobody does it.
+check "a normal user can list snapshots" aw_user_run snapper -c root list
+
+snapshot_count() { snapper -c root list --columns number 2>/dev/null | grep -cE '^[[:space:]]*[0-9]+'; }
+limine_snapshot_entries() { grep -c 'rootflags=subvol=@snapshots/' /boot/limine.conf 2>/dev/null || printf '0'; }
+
+snaps_before="$(snapshot_count)"
+entries_before="$(limine_snapshot_entries)"
+
+# Install something small and real. The package is irrelevant; the transaction
+# is the point.
+check "a package installs"          pacman -S --noconfirm --needed tree
+
+snaps_after="$(snapshot_count)"
+entries_after="$(limine_snapshot_entries)"
+
+more_snapshots() { [ "$snaps_after" -gt "$snaps_before" ]; }
+more_entries()   { [ "$entries_after" -gt "$entries_before" ]; }
+
+check_v "a pacman transaction took a snapshot" more_snapshots
+check_v "and it became a bootable menu entry"  more_entries
+printf '      snapshots %s -> %s, boot entries %s -> %s\n' \
+  "$snaps_before" "$snaps_after" "$entries_before" "$entries_after"
+
+# The documented escape hatch: one transaction without a snapshot.
+snaps_mid="$(snapshot_count)"
+SNAP_PAC_SKIP=y pacman -S --noconfirm --needed tree >/dev/null 2>&1
+skip_took_none() { [ "$(snapshot_count)" -eq "$snaps_mid" ]; }
+check "SNAP_PAC_SKIP=y skips the snapshot" skip_took_none
+
+check "archwright update rejects arguments" \
+  sh -c 'archwright update nonsense >/dev/null 2>&1; [ "$?" -eq 2 ]'
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then

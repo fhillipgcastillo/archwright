@@ -49,6 +49,10 @@ assert_eq "$(status_of version)" "0" "version exits 0"
 
 # An unknown subcommand must fail loudly rather than doing nothing quietly.
 assert_eq "$(status_of no-such-subcommand)" "2" "an unknown subcommand exits 2"
+
+# update takes no arguments, and must say so rather than silently ignoring
+# them - it is a command that changes every package on the machine.
+assert_eq "$(status_of update nonsense)" "2" "update rejects arguments"
 if [ -n "$(stderr_of no-such-subcommand)" ]; then _pass
 else _fail "cli" "an unknown subcommand said nothing on stderr"; fi
 

@@ -22,6 +22,12 @@ btrfs-progs
 dosfstools
 exfatprogs
 snapper
+# Pacman hooks that snapshot before and after every transaction. Without this
+# the whole snapshot story is scenery: snapper is configured, the boot menu
+# renders per-snapshot entries, and nothing ever creates a snapshot after the
+# install one. It also gives the documented single-transaction bypass the spec
+# asks for - SNAP_PAC_SKIP=y pacman -Syu.
+snap-pac
 
 ## Group: boot
 efibootmgr

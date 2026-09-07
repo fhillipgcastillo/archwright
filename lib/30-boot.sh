@@ -107,10 +107,77 @@ EOF
     || aw_die "could not remount @snapshots"
   chmod 750 /mnt/.snapshots
 
+  # Retention. Every one of snapper's cleanup algorithms is OFF by default, so
+  # enabling snapper-cleanup.timer alone - which is all this phase used to do -
+  # schedules a job that runs on time and deletes nothing. With snap-pac taking
+  # a pre and a post snapshot per pacman transaction, that fills the disk
+  # quietly, and the first symptom is an update failing for want of space.
+  #
+  #   NUMBER_CLEANUP        the keep-the-last-N algorithm. Off by default.
+  #   NUMBER_LIMIT=12       roughly a month of ordinary updating, and enough
+  #                         history to find the transaction that broke something.
+  #   NUMBER_MIN_AGE=1800   never delete anything younger than 30 minutes, so a
+  #                         burst of transactions cannot evict the snapshot you
+  #                         are about to roll back to.
+  #   EMPTY_PRE_POST_*      a transaction that changed nothing still leaves a
+  #                         pre/post pair. Also off by default.
+  #   ALLOW_GROUPS/SYNC_ACL let a wheel user run `snapper list` without sudo.
+  aw_log info "configuring snapshot retention"
+  local snapper_conf=/mnt/etc/snapper/configs/root
+  [ -f "$snapper_conf" ] || aw_die "snapper did not write its root config"
+  local setting name
+  for setting in \
+    'TIMELINE_CREATE="no"' \
+    'TIMELINE_CLEANUP="yes"' \
+    'NUMBER_CLEANUP="yes"' \
+    'NUMBER_MIN_AGE="1800"' \
+    'NUMBER_LIMIT="12"' \
+    'NUMBER_LIMIT_IMPORTANT="6"' \
+    'EMPTY_PRE_POST_CLEANUP="yes"' \
+    'EMPTY_PRE_POST_MIN_AGE="1800"' \
+    'ALLOW_GROUPS="wheel"' \
+    'SYNC_ACL="yes"'
+  do
+    name="${setting%%=*}"
+    if grep -q "^$name=" "$snapper_conf"; then
+      sed -i "s|^$name=.*|$setting|" "$snapper_conf" \
+        || aw_die "could not set $name in the snapper config"
+    else
+      printf '%s\n' "$setting" >> "$snapper_conf"
+    fi
+  done
+  grep -q '^NUMBER_CLEANUP="yes"' "$snapper_conf" \
+    || aw_die "retention was not applied - the cleanup timer would delete nothing"
+
   # Snapshots happen on updates, not on a clock.
   aw_run_in_chroot "systemctl disable snapper-timeline.timer" >/dev/null 2>&1 || true
   aw_run_in_chroot "systemctl enable snapper-cleanup.timer" >/dev/null \
     || aw_log warn "could not enable snapper-cleanup.timer"
+
+  # Keep the boot menu in step with the snapshots. snap-pac's post hook is
+  # zz-snap-pac-post.hook and pacman runs hooks in alphabetical order, so this
+  # has to sort after it - otherwise the menu is regenerated before the
+  # snapshot it should list exists.
+  aw_log info "installing the boot-menu refresh hook"
+  install -d -m 0755 /mnt/etc/pacman.d/hooks
+  cat > /mnt/etc/pacman.d/hooks/zzz-archwright-limine.hook <<'HOOK'
+# Added by Archwright.
+#
+# Regenerates /boot/limine.conf after every pacman transaction, so a snapshot
+# snap-pac just took is bootable from the menu without anyone remembering to
+# run anything. Also picks up a new kernel.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Updating the Limine boot menu...
+When = PostTransaction
+Exec = /usr/bin/archwright-limine-update
+HOOK
 
   aw_log info "taking the baseline snapshot"
   aw_run_in_chroot "snapper --no-dbus -c root create --description 'archwright install baseline'" \

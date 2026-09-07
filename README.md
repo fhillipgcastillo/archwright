@@ -1,15 +1,21 @@
 # Archwright
 
 An opinionated base **Arch Linux** system: encrypted disk, btrfs with snapshots
-you can boot back into, and — eventually — Hyprland on Wayland with a small
-curated app set and first-class AI-agent tooling.
+you can boot back into, Hyprland on Wayland, a small curated app set, and
+first-class AI-agent tooling.
 
 Two deliverables, one target system: a **guide** that walks you through building
 it by hand, and this **installer** that does it for you.
 
 ---
 
-## ⚠️ Status: milestone 6 of 7
+## Status: all seven milestones complete, verified in QEMU
+
+Every milestone is gated by a run that installs from the stock Arch ISO,
+reboots, unlocks the disk, logs in and asserts — 239 assertions at the last
+count. Nothing described below is intention; it is what the gate checks.
+
+**It has not been run on physical hardware yet.** See "Honest limitations".
 
 **What works today:** a bootable, fully encrypted, snapshot-capable Arch system
 with a **usable Hyprland desktop** — status bar, notifications, app launcher,
@@ -34,7 +40,11 @@ lock before suspend on laptops. Re-runnable with `archwright hardware`.
 arrangement, archives, a text editor and a calculator. Clicking an indicator on
 the bar opens the thing that manages it. `Print` takes a screenshot.
 
-**What does not exist yet:** the written guide (milestone 7).
+**The guide:** the manual build is written up as a companion document — every
+command, and the reasoning behind each decision — so this system can be built
+by hand, changed, or read as a reference. `test/check-guide-drift.sh` verifies
+the guide's package, theme, group and phase tables still match this repository,
+so it cannot quietly go stale.
 
 | Key | Does |
 |---|---|
