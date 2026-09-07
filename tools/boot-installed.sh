@@ -8,6 +8,25 @@
 # By default the disk is opened READ-ONLY via QEMU's -snapshot: everything you
 # do is discarded on exit, so you can break things freely. Pass --write to keep
 # your changes.
+#
+# KNOWN LIMITATION ON WINDOWS + WSL: the Super key does not reach the guest.
+#
+# Windows and WSLg both claim Super for themselves, so `Super + Return` opens
+# nothing and `Super + Q` fires a Windows shortcut instead. The binding is
+# fine - `hyprctl binds` shows `modmask: 64` - the keypress simply never
+# arrives. Tried and did NOT help: QEMU's Ctrl+Alt+G grab, GDK_BACKEND=x11,
+# the SDL backend with grab-mod, and VNC.
+#
+# This is a limitation of viewing a VM from Windows, not of Archwright. On real
+# hardware Super goes straight to Hyprland. To drive the session from here,
+# dispatch to the compositor over the serial console instead:
+#
+#   export XDG_RUNTIME_DIR=/run/user/1000
+#   export HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1)
+#   hyprctl dispatch exec foot
+#
+# Non-Super bindings, the mouse, and anything launched that way all work
+# normally.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE" || exit 1

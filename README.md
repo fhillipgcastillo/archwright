@@ -216,6 +216,30 @@ Give it 4 GB RAM and a 20 GB disk, then follow steps 2–8 exactly as above.
 --phase all` builds and boots a throwaway VM and asserts the result. It requires
 Linux with KVM. See `CLAUDE.md`.
 
+### The Super key does not work in a VM viewed from Windows
+
+If you run the VM under WSL and look at it from Windows, **`Super + Return` and
+every other Super binding will do nothing** — Windows and WSLg both claim the
+Super key and it never reaches the guest. `Super + Q` will fire a Windows
+shortcut instead.
+
+The configuration is not at fault: `hyprctl binds` shows `modmask: 64` for the
+binding, and it works on real hardware. Things that were tried and did **not**
+help: QEMU's `Ctrl+Alt+G` input grab, `GDK_BACKEND=x11`, the SDL backend with an
+explicit grab modifier, and VNC.
+
+To drive the session anyway, talk to the compositor over the serial console:
+
+```sh
+export XDG_RUNTIME_DIR=/run/user/1000
+export HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1)
+hyprctl dispatch exec foot
+hyprctl clients
+```
+
+Everything else — the mouse, non-Super bindings, anything launched by dispatch —
+behaves normally.
+
 ---
 
 ## Honest limitations

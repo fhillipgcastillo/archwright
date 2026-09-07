@@ -578,6 +578,7 @@ Recorded so they are not mistaken for decisions.
 |---|---|
 | **Plymouth installed but unconfigured** | No boot splash, no themed unlock. Dead weight until the theming milestone |
 | **`fetch-shellcheck.ps1` does not verify a checksum** | Unlike `fetch-arch-iso.sh`, which checks sha256. Inconsistent |
+| **Super key unusable when viewing the VM from Windows** | Windows and WSLg both claim Super, so no `Super + …` binding reaches the guest. The binding is correct (`hyprctl binds` reports `modmask: 64`) and works on real hardware. Ctrl+Alt+G grab, `GDK_BACKEND=x11`, SDL with `grab-mod`, and VNC were all tried and none helped. Workaround: `hyprctl dispatch` over the serial console. Viewer limitation, not a product defect |
 | **Windows host path unmaintained** | `test/vm-install.ps1` and `tools/fetch-qemu-windows.ps1` are not written or verified. See D13 |
 
 ### L17 — `README.md` written: the real-hardware bootstrap
