@@ -660,6 +660,10 @@ machine. Milestone 1 was re-run green afterwards to confirm changing the
 emulated graphics did not disturb the base install.
 **Trigger:** deliberate probe before planning, after the UKI lesson.
 
+> **Superseded by L28.** `-vga none` removed the only framebuffer firmware
+> and the bootloader can draw on, making the machine impossible to watch
+> boot. `virtio-vga` gives the render node *and* visible boot output.
+
 ### L23 — `AUTOLOGIN` is a real option, not a test hack
 greetd's tuigreet runs on VT1 and the harness only has a serial console, so the
 automated gate cannot type a password. Rather than a test-only branch,
@@ -708,3 +712,77 @@ package file lists rather than guessed. **Trigger:** first gate run.
 | **Graphics drivers** | The VM uses virtio-gpu. `mesa` covers Intel and AMD; **NVIDIA machines will not reach a session** until the hardware milestone adds driver selection. The base system will still boot |
 | **Only one monitor, one mode** | `monitor = , preferred, auto, 1` is untested against multiple outputs, mixed DPI or fractional scaling |
 | **No lock screen** | `Super + Shift + E` exits the session; there is nothing between an unattended machine and the greeter until milestone 3 |
+
+### L28 — `virtio-vga` instead of `-vga none -device virtio-gpu-pci`
+**Supersedes the device choice in L22.** L22 removed the VGA device to get down
+to a single card. That worked for the automated gate but removed the only
+framebuffer firmware and the bootloader know how to draw on: booting the
+installed image by hand showed the Limine menu only on the serial console, and
+the QEMU window opened with zero dimensions because no display surface exists
+until Linux loads `virtio_gpu`.
+
+`virtio-vga` is one device that is both VGA-compatible and virtio-gpu. Probed:
+one display controller, `renderD128` present, one connected connector — so
+Hyprland keeps its render node and firmware output is visible. It is also
+closer to real hardware, which does show boot output on screen, so the previous
+config was the less faithful one.
+
+Incidental: the card enumerates as `card1`, not `card0`, because simpledrm
+holds `card0` briefly during EFI handover. Nothing depends on the number; the
+GPU probe was generalised to stop implying it does.
+**Trigger:** the author tried to look at the built system and could not see it.
+
+### L29 — A persistent pacman cache, shared into the guest over 9p
+A full gate run was dominated by `pacstrap` downloading ~500MB. The host now
+keeps a cache at `$ARCHWRIGHT_CACHE/pkgcache`, shared into the guest as a 9p
+mount over `/var/cache/pacman/pkg`, and the installer is told to use it with
+`--host-pkg-cache`.
+
+Measured: **6m06s cold, 3m12s warm** for the full gate.
+
+The hazard, documented at both the flag and the call site: `pacstrap -c` uses
+the *live environment's* cache, which on a stock Arch ISO is **a tmpfs in RAM**.
+Several hundred megabytes of packages would exhaust it. It is only safe because
+the harness mounts real host storage there first, which is why this is an
+opt-in flag a real install never passes rather than the default.
+
+The mount is non-fatal: if 9p fails the run warns and proceeds slowly. Losing
+an optimisation must not turn into a failed test.
+**Trigger:** the author asked for faster iteration.
+
+---
+
+# Planned work
+
+Things decided to be worth doing, not yet scheduled into a milestone. Distinct
+from "known gaps", which are things currently missing or wrong.
+
+## P1 — Resume an interrupted install (real hardware)
+
+**Why it matters.** A real install is 20–40 minutes, mostly downloads. If it
+fails at minute 35 — flaky wifi, a mirror timing out, a laptop lid closing —
+the only option today is to start over, re-downloading everything. The disk
+phase deliberately wipes and re-partitions on every run, which is correct for a
+first attempt and punishing for a retry.
+
+**Why it cannot resume today.**
+
+- Cross-phase state lives in `/run/archwright`, which is tmpfs: it does not
+  survive a reboot.
+- Nothing reopens the LUKS container or remounts the subvolume tree, so
+  `--phase base` only works if the live environment is still up from the failed
+  attempt.
+- `pacstrap` caches into the target, which the next run then wipes, so the
+  downloads are lost with it.
+- `aw_track` records every partition, container and subvolume a run creates,
+  but **nothing consumes that record** — the scaffolding for "undo exactly what
+  this run made" exists, the undo does not.
+
+**Shape of a fix.** Persist phase state somewhere durable — the ESP is the
+obvious candidate, since it is FAT, small, and mounted before anything else.
+Teach the disk phase to recognise Archwright's own layout and offer `--resume`
+rather than wiping. Keep the package cache out of the wiped area, or accept
+re-downloading and fix only the phase skipping.
+
+**Flagged by the author as important**, and it is: it is the difference between
+a bad network costing five minutes and costing the whole install.

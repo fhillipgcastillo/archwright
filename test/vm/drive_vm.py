@@ -35,6 +35,10 @@ CACHE = pathlib.Path(os.environ.get("ARCHWRIGHT_CACHE",
 ISO = CACHE / "archlinux.iso"
 BOOT = CACHE / "boot"
 VMRUN = CACHE / "vmrun"
+# Survives across runs, unlike VMRUN which is wiped every time. Shared into
+# the guest over 9p so pacstrap reads packages from local disk instead of
+# re-downloading ~500MB of Arch mirrors on every single run.
+PKGCACHE = CACHE / "pkgcache"
 
 # Not shipped into the guest: documentation and local build artifacts. Anything
 # else in the repo root goes, so a new directory the installer reads does not
@@ -272,6 +276,7 @@ def fresh_run_dir(size="20G"):
 
 
 def start_qemu(disk, serial_port, iso_boot=True):
+    PKGCACHE.mkdir(parents=True, exist_ok=True)
     code = _first_existing(OVMF_CODE_CANDIDATES, "OVMF firmware", "ARCHWRIGHT_OVMF_CODE")
     acc = accel()
     args = [
@@ -284,15 +289,26 @@ def start_qemu(disk, serial_port, iso_boot=True):
         "-drive", f"file={disk},if=virtio,format=qcow2",
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
         "-serial", f"tcp:127.0.0.1:{serial_port},server=on,wait=off",
-        # A real single-GPU machine: one virtio GPU, one connected connector,
-        # and a render node. Probing (commit 652103e) showed QEMU's default
-        # bochs display gives a card and a connected connector but NO render
-        # node, which is what EGL/GBM needs - so Hyprland would have silently
-        # fallen back to software rendering and the harness would have been
-        # testing a path no real machine takes. -vga none removes the default
-        # VGA so there is exactly one card.
-        "-vga", "none",
-        "-device", "virtio-gpu-pci",
+        # One GPU that is BOTH VGA-compatible and virtio-gpu.
+        #
+        # QEMU's default bochs display gives a card and a connected connector
+        # but NO render node, which is what EGL/GBM needs - Hyprland would
+        # silently software-render and the harness would be testing a path no
+        # real machine takes. Plain `-vga none -device virtio-gpu-pci` fixes
+        # that but removes the only framebuffer firmware and the bootloader
+        # know how to draw on, so nothing is visible until Linux loads
+        # virtio_gpu.
+        #
+        # virtio-vga is a single device that is both: firmware and Limine
+        # paint normally, Linux still gets renderD128, and there is still
+        # exactly one card and one connector. It is also closer to real
+        # hardware, which does show you boot output on the screen.
+        "-device", "virtio-vga",
+        # Persistent pacman cache, shared read-write from the host. security_model
+        # =none keeps ownership as the host user rather than trying to map
+        # guest uids, which is what we want for a plain package cache.
+        "-fsdev", f"local,id=pkgcache,path={PKGCACHE},security_model=none",
+        "-device", "virtio-9p-pci,fsdev=pkgcache,mount_tag=awpkgcache",
         "-display", "none",
     ]
     extra = os.environ.get("AW_EXTRA_QEMU_ARGS", "").split()
@@ -339,6 +355,29 @@ def wait_for_live_shell(ser):
     if rc != 0:
         die("could not establish a usable shell in the live environment")
     log("live root shell established")
+    mount_pkg_cache(ser)
+
+
+def mount_pkg_cache(ser):
+    """Mount the host's pacman cache over the live environment's own.
+
+    Not fatal if it fails: the install still works, just slowly. Losing an
+    optimisation should never turn into a failed test run.
+    """
+    rc, _ = ser.run(
+        "mkdir -p /var/cache/pacman/pkg && "
+        "mount -t 9p -o trans=virtio,version=9p2000.L,msize=512000 "
+        "awpkgcache /var/cache/pacman/pkg", 120)
+    if rc != 0:
+        log("WARNING: could not mount the host package cache; "
+            "packages will be re-downloaded")
+        return False
+    _, out = ser.run("ls /var/cache/pacman/pkg | wc -l", 60)
+    # The output carries the echoed command and the sentinel too, so pick the
+    # last purely numeric line rather than assuming a position.
+    counts = [ln.strip() for ln in out.splitlines() if ln.strip().isdigit()]
+    log(f"host package cache mounted ({counts[-1] if counts else '?'} cached files)")
+    return True
 
 
 def guest_fetch_repo(ser, port):
@@ -389,7 +428,8 @@ ANSWERS = "/root/archwright/test/vm/answers.example.conf"
 
 def run_installer(ser, phase, timeout=1800, answers=ANSWERS):
     return ser.run(
-        f"bash /root/archwright/install.sh --answers {answers} --phase {phase} --yes",
+        f"bash /root/archwright/install.sh --answers {answers} --phase {phase}"
+        f" --yes --host-pkg-cache",
         timeout)
 
 
@@ -695,7 +735,8 @@ def phase_probe_gpu():
             ("loaded drm modules", "lsmod | grep -E '^(virtio_gpu|bochs|drm)' || echo none"),
             ("DRM connectors", "for c in /sys/class/drm/*/status; do "
                                "echo \"$c=$(cat $c)\"; done 2>/dev/null || echo none"),
-            ("card0 present", "test -e /dev/dri/card0 && echo CARD0-YES || echo CARD0-NO"),
+            ("a drm card exists", "ls /dev/dri/card* >/dev/null 2>&1 && echo CARD-YES || echo CARD-NO"),
+            ("a render node exists", "ls /dev/dri/renderD* >/dev/null 2>&1 && echo RENDER-YES || echo RENDER-NO"),
         ]:
             _, out = ser.run(cmd, 60)
             log(f"--- {label} ---")

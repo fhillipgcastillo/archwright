@@ -27,6 +27,7 @@ export LC_ALL=C
 ANSWERS=""
 ONLY_PHASE=""
 ASSUME_YES=0
+HOST_PKG_CACHE=0
 
 usage() {
   cat <<'EOF'
@@ -36,6 +37,11 @@ Usage: install.sh --answers <file> [--phase <name>] [--yes]
   --phase <name>    Run a single phase: preflight, disk, base, boot, session.
                     Default: all of them, in order.
   --yes             Do not prompt before erasing the target disk.
+  --host-pkg-cache  Install packages from the LIVE ENVIRONMENT's pacman cache
+                    instead of the target's. Only pass this when that cache is
+                    backed by real storage - on a stock Arch ISO it is a tmpfs
+                    in RAM, and several hundred megabytes of packages will
+                    exhaust it.
 
 This script ERASES the target disk. Read docs/ before running it.
 EOF
@@ -46,6 +52,7 @@ while [ $# -gt 0 ]; do
     --answers) ANSWERS="${2:-}"; shift 2 ;;
     --phase)   ONLY_PHASE="${2:-}"; shift 2 ;;
     --yes)     ASSUME_YES=1; shift ;;
+    --host-pkg-cache) HOST_PKG_CACHE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; aw_die "unknown argument: $1" ;;
   esac
@@ -61,6 +68,7 @@ esac
 aw_answers_load "$ANSWERS"
 aw_answers_validate || aw_die "answer file is invalid; fix the errors above"
 export ASSUME_YES
+export HOST_PKG_CACHE
 
 run_phase() {
   local name="$1" file="$2"

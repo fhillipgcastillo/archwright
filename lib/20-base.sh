@@ -13,10 +13,21 @@ aw_base() {
   [ "$count" -gt 0 ] || aw_die "manifest/core.packages produced no packages"
   aw_log info "pacstrap: $count packages"
 
+  # -c makes pacstrap use the LIVE ENVIRONMENT's package cache rather than the
+  # target's. Only safe when that cache is real storage: on a stock Arch ISO it
+  # is a tmpfs in RAM and would be exhausted. The test harness passes the flag
+  # after mounting a host directory there over 9p, which is what turns a
+  # 15-minute run into a 3-minute one.
+  local pacstrap_args=(-K)
+  if [ "${HOST_PKG_CACHE:-0}" = "1" ]; then
+    aw_log info "using the live environment's package cache"
+    pacstrap_args+=(-c)
+  fi
+
   # shellcheck disable=SC2086
   # Intentional word splitting: pacstrap takes each package as its own
   # argument, and manifest entries are validated to contain no whitespace.
-  pacstrap -K /mnt $packages || aw_die "pacstrap failed"
+  pacstrap "${pacstrap_args[@]}" /mnt $packages || aw_die "pacstrap failed"
 
   aw_log info "generating fstab"
   genfstab -U /mnt >> /mnt/etc/fstab
