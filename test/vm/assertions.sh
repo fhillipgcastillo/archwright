@@ -561,6 +561,35 @@ hypr_rounding_applied() {
 }
 check "the rounded-corner look applied" hypr_rounding_applied
 
+# Hyprland does not refuse to start on a bad option - it starts, ignores the
+# line, and paints a list of complaints over the desktop. So every assertion
+# above can pass while the user is looking at an error overlay, which is
+# exactly what happened: milestone 6 shipped config errors that the gate had no
+# way to see. Ask the compositor directly.
+hypr_config_is_clean() {
+  local out
+  out="$(hyprctl_user configerrors 2>&1)"
+  printf '%s\n' "$out"
+  # A clean config reports "no errors". Anything else is a real complaint.
+  printf '%s' "$out" | grep -qi 'no errors'
+}
+check_v "hyprland reports no configuration errors" hypr_config_is_clean
+
+# waybar behaves the same way with CSS: it starts, drops the rule it cannot
+# parse, and says so only in the journal.
+waybar_css_is_clean() {
+  local out
+  # The user's journal, read as the user - waybar runs as a user unit and root's
+  # journalctl would not see it.
+  out="$(runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" \
+           journalctl --user-unit waybar -n 200 --no-pager 2>/dev/null || true)"
+  printf '%s\n' "$out"
+  # GTK reports a bad selector or an unknown property as a parse error naming
+  # the stylesheet. That is the class worth failing on.
+  ! printf '%s' "$out" | grep -qiE 'css|style|parse'
+}
+check_v "waybar parsed its stylesheet without errors" waybar_css_is_clean
+
 # The wallpaper: a link the user owns, so a theme change needs no root.
 check "the wallpaper link resolves"  test -f "$AW_HOME/.local/state/archwright/wallpaper.png"
 check "it points into the shared tree" \
