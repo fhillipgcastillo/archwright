@@ -1163,3 +1163,75 @@ to it. A **positive** registry result is strong evidence. A **negative** one is
 not, and must be checked against the project's own documentation before an
 absence is recorded as a decision.
 **Trigger:** the user supplying the URL the search should have led to.
+
+### L56 — Fixing a security bug is where the next one gets introduced
+The first round of fixes for L48/L49 was reviewed again, and two of the fixes
+were themselves defects — one strictly worse than the bug it replaced.
+
+**The wall-clock deadline.** Replacing `--on-active` with `--on-calendar`
+closed the suspend leak and opened a hole: `date` formats in the *caller's*
+timezone, systemd evaluates `OnCalendar` in the *system's*, and `sudo` passes
+`TZ` through. When the resulting instant is already past, systemd finds no
+future occurrence and marks the timer inactive **without firing it**. A stepped
+clock does the same thing — `timesyncd` correcting a dual-boot machine's RTC is
+enough. Permanent passwordless root, behind a success message, in a case the
+monotonic timer had been immune to.
+
+The answer was never either/or. A timer fires at whichever of its triggers
+comes first, so it now carries both: monotonic for clock steps and timezone
+confusion, calendar for suspend, UTC on both sides of the calendar value.
+
+**The reordering.** Scheduling the timer before installing the grant protects
+the *new* window. It does not protect the *old* one, and asking for a second
+window is how you shorten the first. Cancelling its timer before the
+replacement was scheduled meant any later failure left the original grant on
+disk with nothing pending — while printing "nothing was granted". Every path
+past that point now revokes rather than declines.
+
+**Rule this leaves behind:** a fix to a security bug is a new change and needs
+the same adversarial pass as the original, from someone who did not write it.
+Both of these would have shipped on the strength of a green gate: the VM boots
+once, never suspends, and has a correct clock.
+
+### L57 — `shellcheck -s` overrides in-file `shell=` directives
+`-s bash` was added to `test/lint.sh` on the belief that shellcheck could not
+determine a dialect for the extensionless files in `bin/`. It reads the
+shebang, so the flag was unnecessary — and `-s` *overrides* every in-file
+`# shellcheck shell=` directive, which switched off all POSIX checking on
+`config/profile.d/archwright-agents.sh`. That file is sourced by `/etc/profile`
+in whatever shell the user logs in with; a `[[ ]]` or a `local` added to it
+would have passed lint and broken the login shell. Removed, and lint stays
+clean without it — which is the proof it was doing nothing useful.
+**Trigger:** a reviewer testing the claim in the comment instead of reading it.
+
+### L58 — Tightening a filter broke the feature it was protecting
+Closing the injection hole (L50) narrowed the mise spec pattern so far that it
+rejected every version pin mise documents — `npm:@openai/codex@0.20.0`,
+`node@22`, `go:github.com/owner/tool@latest`. Pinning a version is the main
+reason to run `mise-install` by hand rather than add a manifest row, so the
+hardening removed the command's primary use. All four documented shapes are now
+test data.
+**Trigger:** a reviewer running the predicate against real-world input rather
+than against the attack strings it was written for.
+
+### L59 — Two cleanup assertions passed with the feature deleted
+"An open window survives the periodic clean" wrote a file, ran a command that
+was not configured to remove it, and asserted it was still there. Delete the
+tmpfiles rule entirely and it still passed — "the file survived" is trivially
+true when nothing is set up to delete it. Both cleanup checks now assert the
+rule's content first. The boot check also left a live `NOPASSWD` rule in the VM
+whenever it failed, which the later "sudoers still parses" check happily
+accepted.
+**Trigger:** "would this fail if the feature were absent?", asked of an
+assertion that reads as obviously correct.
+
+### L60 — A test that reads the file it is checking is not an oracle
+`test_manifest.sh` pins pi's spec string, which was offered as the guard against
+D17's mistake recurring. It proves only that nobody edited the row: it cannot
+tell that the package exists, or that it ships the command named in the third
+field — which is precisely what was got wrong. The VM gate's first-run
+assertion now resolves **pi** rather than crush, so the one assertion in the
+suite that talks to a real registry is aimed at the claim with the weakest
+evidence behind it.
+**Trigger:** a reviewer declining to accept a same-file assertion as
+verification.

@@ -284,8 +284,11 @@ line people usually end up with, and the difference is in the failure cases:
   file in `/etc/sudoers.d` locks you out of root with no way back.
 - The timer is scheduled **before** the grant is written, so there is no moment
   where the grant exists and nothing is due to remove it.
-- The deadline is a **wall-clock time**, not a countdown, so suspending the
-  machine does not extend the window.
+- The revert is scheduled on **two clocks at once** — a countdown and a
+  wall-clock deadline, whichever comes first. A countdown alone stops while the
+  machine is suspended; a wall-clock deadline alone can be missed entirely if
+  the system clock is stepped or the timezone disagrees. Each covers the
+  other's blind spot.
 - It is removed **at every boot** regardless, because a reboot destroys the
   timer but not the file.
 
