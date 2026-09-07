@@ -51,12 +51,23 @@ EOF
 # A command name. Becomes a filename, so it must not contain a path separator.
 aw_agent_valid_name() { [[ ${1-} =~ ^[a-z][a-z0-9-]*$ ]]; }
 
-# A mise spec: backend, then a package that may be scoped. Anything outside
-# this set could end the quoted string it is interpolated into. The backslash
-# matters as much as the quote does - it survives the generator's heredoc and
-# is then re-read as an escape inside the generated string, which produces a
-# stub that is not valid bash while reporting success.
-aw_agent_valid_spec() { [[ ${1-} =~ ^[a-z][a-z0-9]*:@?[A-Za-z0-9._/-]+$ ]]; }
+# A mise spec: an optional backend, a package that may be scoped, and an
+# optional version pin - node@22, npm:typescript@5.4.5,
+# npm:@openai/codex@0.20.0, go:github.com/owner/tool@latest.
+#
+# Anything outside this set could end the quoted string it is interpolated
+# into. The backslash matters as much as the quote does: it survives the
+# generator's heredoc and is then re-read as an escape inside the generated
+# string, producing a stub that is not valid bash while reporting success.
+#
+# Kept character-for-character identical to is_mise_spec in bin/archwright.
+# The two are separate because the CLI ships standalone onto the installed
+# system and cannot source lib/.
+aw_agent_valid_spec() {
+  [[ ${1-} =~ ^([a-z][a-z0-9]*:)?@?[A-Za-z0-9._/-]+(@[A-Za-z0-9._-]+)?$ ]] || return 1
+  case "$1" in */../*|../*|*/..) return 1 ;; esac
+  return 0
+}
 
 # The executable inside the package. This one is interpolated UNQUOTED - it is
 # a command word, not an argument - so it is the most dangerous field of the
@@ -74,10 +85,14 @@ aw_agent_write_stubs() {
   [ -f "$manifest" ] || aw_die "agent manifest not found: $manifest"
   install -d -m 0755 "$dest" || aw_die "could not create $dest"
 
-  # This directory is ours and mirrors the manifest exactly. Without the clean
-  # a row deleted from the manifest leaves its stub behind on an updated
-  # system, so /usr/share goes on advertising an agent the project removed -
-  # which is the same broken promise D17 refuses to ship.
+  # This directory is ours and mirrors the manifest exactly, so a row deleted
+  # from the manifest stops existing here on the next run.
+  #
+  # To be clear about what this does NOT do: the launcher a user actually runs
+  # is the seeded copy in ~/.local/bin, which is theirs and is deliberately
+  # left alone. Removing a row does not uninstall anything from an existing
+  # machine - it only stops new installs getting it, and stops this tree
+  # disagreeing with the manifest that generated it.
   find "$dest" -mindepth 1 -maxdepth 1 -type f -exec rm -f {} + \
     || aw_die "could not clear the stub tree at $dest"
 

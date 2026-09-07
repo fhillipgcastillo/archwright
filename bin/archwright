@@ -14,8 +14,14 @@ AW_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/archwright"
 AW_BIN_DIR="$HOME/.local/bin"
 AW_WORK_DIR="$HOME/Work"
 AW_FALLBACK_AGENT="claude"
-# Overridable so the path is not repeated in three places. Not a test hook:
-# the grant path is tested in the VM against the real /etc/sudoers.d.
+# Overridable so the path is not repeated in three places, and so the unit
+# tests can prove a rejected sudo-window writes nothing - which they could not
+# while this pointed at a directory they had no business touching.
+#
+# Note that a window opened under an override is NOT covered by the boot
+# cleanup, which names /etc/sudoers.d/99-archwright-sudo-window literally. It
+# takes root to use either, so this grants nothing new; it is just not a
+# supported way to run the feature.
 AW_SUDOERS_D="${ARCHWRIGHT_SUDOERS_D:-/etc/sudoers.d}"
 AW_SUDO_DROPIN="$AW_SUDOERS_D/99-archwright-sudo-window"
 AW_SUDO_UNIT="archwright-sudo-window-revert"
@@ -44,12 +50,23 @@ is_command_name() { [[ ${1-} =~ ^[a-z][a-z0-9-]*$ ]]; }
 # accusation rather than a bug.
 is_user_name() { [[ ${1-} =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
 
-# A mise spec: a backend, then a package that may be scoped. Interpolated into
-# a double-quoted string in the generated stub, so anything that could end that
-# string is out - the backslash included. A backslash survives the generator
-# and is re-read as an escape, producing a stub that is not valid bash while
-# the command reports success.
-is_mise_spec() { [[ ${1-} =~ ^[a-z][a-z0-9]*:@?[A-Za-z0-9._/-]+$ ]]; }
+# A mise spec: an optional backend, a package that may be scoped, and an
+# optional version pin. All four shapes mise documents have to fit:
+#
+#   node@22                     npm:typescript@5.4.5
+#   npm:@openai/codex@0.20.0    go:github.com/owner/tool@latest
+#
+# Interpolated into a double-quoted string in the generated stub, so anything
+# that could end that string is out - the backslash included, because it
+# survives the generator and is re-read as an escape, producing a stub that is
+# not valid bash while the command reports success.
+is_mise_spec() {
+  [[ ${1-} =~ ^([a-z][a-z0-9]*:)?@?[A-Za-z0-9._/-]+(@[A-Za-z0-9._-]+)?$ ]] || return 1
+  # Inert - the spec only ever reaches mise inside quotes - but a field this
+  # file calls a security boundary should not carry a traversal.
+  case "$1" in */../*|../*|*/..) return 1 ;; esac
+  return 0
+}
 
 # The executable inside the package. Interpolated UNQUOTED, because it is a
 # command word rather than an argument, which makes it the most dangerous of
@@ -243,13 +260,22 @@ cmd_sudo_window() {
   local tmp
   tmp="$(mktemp)" || die "could not create a temporary file"
   chmod 0440 "$tmp"
-  local deadline
-  deadline="$(date -d "+${minutes} minutes" '+%Y-%m-%d %H:%M:%S')" \
+
+  # The deadline is emitted in UTC with an explicit suffix, and read back in
+  # UTC. `date` formats in the CALLER's timezone; systemd evaluates OnCalendar
+  # in the SYSTEM's. sudo passes TZ through, so those two are not always the
+  # same, and a mismatch puts the deadline in the past - at which point systemd
+  # finds no future occurrence and marks the timer inactive WITHOUT firing it.
+  # Saying UTC on both sides removes the disagreement.
+  local deadline_utc deadline_local
+  deadline_utc="$(date -u -d "+${minutes} minutes" '+%Y-%m-%d %H:%M:%S UTC')" \
+    || die "could not work out when the window should close"
+  deadline_local="$(date -d "+${minutes} minutes" '+%Y-%m-%d %H:%M:%S %Z')" \
     || die "could not work out when the window should close"
 
   cat > "$tmp" <<EOF
-# Written by 'archwright sudo-window $minutes' at $(date '+%Y-%m-%d %H:%M:%S').
-# Due to be removed at $deadline, and removed at boot regardless.
+# Written by 'archwright sudo-window $minutes' at $(date '+%Y-%m-%d %H:%M:%S %Z').
+# Due to be removed at $deadline_local, and removed at boot regardless.
 # If you are reading this well after that time, remove it by hand.
 $user ALL=(ALL:ALL) NOPASSWD: ALL
 EOF
@@ -259,6 +285,20 @@ EOF
     die "the generated rule did not pass visudo - refusing to install it"
   fi
 
+  # From here on an EXISTING window may be in play - asking for a second one is
+  # how you shorten or extend the first. Stopping its timer below means that
+  # from this point any failure must revoke, not just decline: leaving the old
+  # drop-in with its timer cancelled is the permanent-root state this whole
+  # function exists to avoid. Revoking is always the safe direction, so every
+  # exit path from here removes the file, and a trap covers the signals.
+  local staged="$AW_SUDOERS_D/.99-archwright-sudo-window.staged"
+  # shellcheck disable=SC2317  # reached via trap, not by falling through
+  _sudo_window_abort() {
+    rm -f "$tmp" "$staged" "$AW_SUDO_DROPIN"
+    systemctl stop "$AW_SUDO_UNIT.timer" >/dev/null 2>&1
+  }
+  trap '_sudo_window_abort; exit 1' INT TERM HUP
+
   # Clear any previous window, unit and all. Stopping the timer alone leaves a
   # failed transient service behind, and systemd refuses to create a unit whose
   # name already exists - which would wedge sudo-window until someone ran
@@ -266,33 +306,49 @@ EOF
   systemctl stop "$AW_SUDO_UNIT.timer" "$AW_SUDO_UNIT.service" >/dev/null 2>&1
   systemctl reset-failed "$AW_SUDO_UNIT.timer" "$AW_SUDO_UNIT.service" >/dev/null 2>&1
 
-  # Schedule the revert FIRST. If this fails, nothing has been granted.
+  # Schedule the revert FIRST, on BOTH clocks. A timer with several triggers
+  # fires at whichever comes first, and the two fail in opposite directions:
   #
-  # --on-calendar rather than --on-active: an absolute wall-clock deadline
-  # survives suspend, where a monotonic countdown simply stops. AccuracySec is
-  # pinned because systemd otherwise gives timers a minute of slack and
-  # coalesces them with other wakeups, so a stated deadline would be a
-  # suggestion.
+  #   --on-active   monotonic. Immune to timezone confusion and to the clock
+  #                 being stepped, but does not advance while the machine is
+  #                 suspended.
+  #   --on-calendar wall clock. Fires on resume if its time passed during a
+  #                 suspend, but goes inactive WITHOUT FIRING if its time is
+  #                 already past when it is evaluated - which a stepped clock
+  #                 or a timezone mismatch can arrange.
+  #
+  # Either one alone has a case where the window never closes. Together they do
+  # not. AccuracySec is pinned because systemd otherwise gives timers a minute
+  # of slack and coalesces them with other wakeups, which would make a stated
+  # deadline a suggestion.
   systemd-run --quiet --unit="$AW_SUDO_UNIT" \
-      --on-calendar="$deadline" \
+      --on-active="${minutes}m" \
+      --on-calendar="$deadline_utc" \
       --timer-property=AccuracySec=1s \
       /usr/bin/rm -f "$AW_SUDO_DROPIN" \
-    || { rm -f "$tmp"; die "could not schedule the revert - nothing was granted"; }
+    || { _sudo_window_abort; die "could not schedule the revert - any previous window has been revoked"; }
 
   # Install atomically. `install` truncates in place, and a concurrent sudo that
   # reads a half-written rule gets a parse error and refuses to run. A rename
-  # within the same directory is atomic, and sudo ignores dotfiles in
-  # sudoers.d, so the staging name is never picked up.
-  local staged="$AW_SUDOERS_D/.99-archwright-sudo-window.staged"
+  # within the same directory is atomic, and sudo ignores any file in
+  # sudoers.d whose name contains a dot, so the staging name is never parsed.
   if ! install -m 0440 -o root -g root "$tmp" "$staged" \
      || ! mv -f "$staged" "$AW_SUDO_DROPIN"; then
-    rm -f "$tmp" "$staged"
-    systemctl stop "$AW_SUDO_UNIT.timer" >/dev/null 2>&1
-    die "could not install $AW_SUDO_DROPIN - nothing was granted"
+    _sudo_window_abort
+    die "could not install $AW_SUDO_DROPIN - nothing is granted"
   fi
   rm -f "$tmp"
 
-  printf 'passwordless sudo granted to %s until %s.\n' "$user" "$deadline"
+  # The timer was armed before the file existed. For a very short window on a
+  # loaded machine it could have fired against nothing, leaving a grant with
+  # no pending revert.
+  if ! systemctl is-active --quiet "$AW_SUDO_UNIT.timer"; then
+    rm -f "$AW_SUDO_DROPIN"
+    die "the revert timer is not pending - nothing is granted"
+  fi
+  trap - INT TERM HUP
+
+  printf 'passwordless sudo granted to %s until %s.\n' "$user" "$deadline_local"
   printf 'it closes on its own, and at the next boot whatever happens.\n'
   printf 'close it now with: sudo rm -f %s\n' "$AW_SUDO_DROPIN"
 }

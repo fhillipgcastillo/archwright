@@ -121,6 +121,22 @@ for bad in '$(id)x' '`id`' 'a;id' 'a|id' '*' 'a b' 'a\b' 'a"b'; do
     "mise-install rejects the command name [$bad]"
 done
 
+# Pinning a version is the main reason to run mise-install by hand rather than
+# add a manifest row, so the specs mise actually documents have to be accepted.
+# Tightening the filter to close the injection hole rejected all of these.
+i=0
+for good in 'npm:@openai/codex@0.20.0' 'npm:typescript@5.4.5' 'node@22' \
+            'go:github.com/owner/tool@latest' 'npm:opencode-ai'; do
+  i=$((i + 1))
+  assert_eq "$(status_of mise-install "$good" "pinned$i")" "0" \
+    "mise-install accepts the spec [$good]"
+done
+
+# A traversal in a spec is inert - it only ever reaches mise inside quotes -
+# but a field the source calls a security boundary should not accept one.
+assert_eq "$(status_of mise-install 'npm:@scope/a/../../../etc' tool)" "2" \
+  "mise-install rejects a spec containing a path traversal"
+
 # Whatever survives validation must PARSE. Greping the generated stub for a
 # substring would pass on a file that is not valid bash - which is exactly how
 # the backslash case shipped.

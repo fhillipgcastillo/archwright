@@ -22,9 +22,14 @@ fi
 mapfile -t files < <(git ls-files -co --exclude-standard '*.sh' 'bin/*' | sort -u)
 [ "${#files[@]}" -gt 0 ] || { echo "no shell scripts tracked yet" >&2; exit 0; }
 
-# -s bash because the bin/ files have no extension for shellcheck to infer a
-# dialect from; every one of them declares a bash shebang.
-"$SHELLCHECK" -x -s bash -P .:lib:test:test/unit "${files[@]}"
+# No -s here, deliberately. It was added on the belief that shellcheck infers
+# the dialect from the extension and so could not read the extensionless bin/
+# files; it infers from the SHEBANG, which those files have. What -s actually
+# does is OVERRIDE every in-file `# shellcheck shell=` directive - which would
+# switch off all POSIX checking on config/profile.d/archwright-agents.sh, a
+# file sourced by /etc/profile in whatever shell the user logs in with. A
+# `[[ ]]` or a `local` added there would then pass lint and break the login.
+"$SHELLCHECK" -x -P .:lib:test:test/unit "${files[@]}"
 status=$?
 [ "$status" -eq 0 ] && echo "lint clean (${#files[@]} files)"
 exit "$status"

@@ -308,8 +308,16 @@ check "the agent keybind is seeded"  grep -q "archwright agent" "$AW_HOME/.confi
 # A stub must actually resolve its package on first invocation. This downloads
 # for real and is the slowest assertion in the file; it is also the only one
 # that proves the lazy-launcher idea works at all.
+#
+# pi rather than any of the others, deliberately. The unit test pins pi's spec
+# string, but a test that reads the same manifest it is checking only proves
+# nobody edited the row - it cannot tell that the package exists or that it
+# ships the command named in the third field. A previous version of this
+# project recorded, wrongly, that no pi CLI existed at all. This resolves the
+# package for real, which is the only assertion in the suite that could catch
+# that class of mistake.
 stub_first_run() {
-  runuser -u "$AW_USER" -- env HOME="$AW_HOME" "$AW_HOME/.local/bin/crush" --version
+  runuser -u "$AW_USER" -- env HOME="$AW_HOME" "$AW_HOME/.local/bin/pi" --version
 }
 check "a stub installs its agent on first run" stub_first_run
 
@@ -344,29 +352,48 @@ check "sudoers still parses after the revert" visudo -c
 # would come back with permanent passwordless root and nothing left to remove
 # it. A tmpfiles rule closes that.
 #
-# This runs the exact command the boot runs, rather than rebooting the VM, so
-# it tests the real path without a second boot cycle.
-check "boot cleanup rule installed" test -f /usr/lib/tmpfiles.d/archwright-sudo-window.conf
+# This runs the same removal pass a boot runs, scoped to the one prefix, rather
+# than rebooting the VM. Boot itself runs
+# `--create --remove --boot --exclude-prefix=/dev` over the whole tree.
+AW_TMPFILES_RULE=/usr/lib/tmpfiles.d/archwright-sudo-window.conf
+check "boot cleanup rule installed" test -f "$AW_TMPFILES_RULE"
+# Both checks below are meaningless without the rule, and would BOTH pass if it
+# were deleted - "the file survived" is trivially true when nothing is
+# configured to remove it. Assert the rule's content, so the tests cannot
+# quietly become vacuous.
+check "the rule removes the drop-in, boot-only" \
+  grep -qx 'r! /etc/sudoers.d/99-archwright-sudo-window' "$AW_TMPFILES_RULE"
+
+write_window() { printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$AW_USER" > "$SUDO_DROPIN"; chmod 0440 "$SUDO_DROPIN"; }
+
 boot_cleanup_removes_it() {
-  install -m 0440 /dev/null "$SUDO_DROPIN"
-  printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$AW_USER" > "$SUDO_DROPIN"
+  write_window
   [ -f "$SUDO_DROPIN" ] || return 1
   systemd-tmpfiles --remove --boot --prefix=/etc/sudoers.d >/dev/null 2>&1
-  ! [ -f "$SUDO_DROPIN" ]
+  local gone=1
+  [ -f "$SUDO_DROPIN" ] && gone=0
+  # Never leave a live NOPASSWD rule behind on the way out: if this check
+  # fails, the removal under test did not happen and nothing else would.
+  rm -f "$SUDO_DROPIN"
+  [ "$gone" -eq 1 ]
 }
 check "a window left by a reboot is removed at boot" boot_cleanup_removes_it
 
-# And the periodic clean must NOT remove a window that is legitimately open,
-# which is what the '!' in the tmpfiles rule is for.
+# The other direction: nothing outside boot may close a window that is
+# legitimately open. `--clean` is what systemd-tmpfiles-clean.timer runs; the
+# plain `--remove` is the stronger case, since that is the flag that WOULD act
+# on this rule if the '!' were ever dropped.
 periodic_clean_leaves_it() {
-  printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$AW_USER" > "$SUDO_DROPIN"
+  write_window
+  systemd-tmpfiles --clean >/dev/null 2>&1
   systemd-tmpfiles --remove --prefix=/etc/sudoers.d >/dev/null 2>&1
   local still=0
   [ -f "$SUDO_DROPIN" ] && still=1
   rm -f "$SUDO_DROPIN"
   [ "$still" -eq 1 ]
 }
-check "an open window survives the periodic clean" periodic_clean_leaves_it
+check "an open window survives a non-boot cleanup" periodic_clean_leaves_it
+check "no window is left behind by these checks" sh -c "! test -f $SUDO_DROPIN"
 check "sudoers still parses at the end" visudo -c
 
 # Snapshot boot entries are the entire reason Limine was chosen over
