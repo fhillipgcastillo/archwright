@@ -110,11 +110,19 @@ aw_theme() {
   # The wallpaper pointer lives in the user's own state directory so that
   # changing theme later needs no root.
   install -d -m 0755 "$home/.local/state/archwright"
-  ln -sfn "/usr/share/archwright/wallpapers/$AW_THEME.png" \
-    "$home/.local/state/archwright/wallpaper.png" \
+  local wp_target="/usr/share/archwright/wallpapers/$AW_THEME.png"
+  ln -sfn "$wp_target" "$home/.local/state/archwright/wallpaper.png" \
     || aw_die "could not point the wallpaper at $AW_THEME"
-  [ -f "$home/.local/state/archwright/wallpaper.png" ] \
-    || aw_die "the wallpaper link does not resolve"
+
+  # Check the link's TARGET, not whether it resolves. The link is absolute and
+  # correct for the installed system, but we are outside that system's root:
+  # from here /usr/share/archwright is the live ISO's, so `[ -f ]` on the link
+  # is asking the wrong filesystem and fails on a perfectly good install. The
+  # file it points at was already asserted present under /mnt above, and the
+  # VM gate checks that it resolves from inside the booted system, which is
+  # where that question can actually be answered.
+  [ "$(readlink "$home/.local/state/archwright/wallpaper.png")" = "$wp_target" ] \
+    || aw_die "the wallpaper link does not point at $wp_target"
 
   printf '%s\n' "$AW_THEME" > "$home/.local/state/archwright/theme" \
     || aw_die "could not record the selected theme"
