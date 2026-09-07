@@ -595,9 +595,14 @@ waybar_journal_is_clean() {
   # "[info] Using CSS file ..." line, so it failed on a healthy bar - a check
   # that cannot pass is no better than one that cannot fail.
   #
-  # "No batteries" is expected in a VM and is not a defect.
+  # Two warnings are statements about the HARDWARE, not defects: this VM has no
+  # battery and no bluetooth controller, and a desktop machine would report the
+  # same. waybar hides those modules when their hardware is absent, which is
+  # the correct behaviour - failing on them would mean the gate could only ever
+  # pass on a laptop.
   bad="$(printf '%s' "$out" | grep -E '\[(error|critical)\]' || true)"
-  bad="$bad$(printf '%s' "$out" | grep -E '\[warning\]' | grep -viE 'no batteries' || true)"
+  bad="$bad$(printf '%s' "$out" | grep -E '\[warning\]' \
+             | grep -viE 'no batteries|no bluetooth controller' || true)"
   printf '%s\n' "$bad"
   [ -z "$bad" ]
 }
@@ -808,8 +813,20 @@ p2_size() {
     s="$(pacman -Qi "$p" 2>/dev/null | awk -F': *' '/Installed Size/ {print $2}')"
     printf '  %-26s %s\n' "$p" "${s:-not installed}"
   done
-  printf '  total on disk now: %s\n' \
-    "$(df -h --output=used / | tail -1 | tr -d ' ')"
+  # A number that can be compared between gate runs. The per-package figures
+  # above exclude dependencies; this one does not, so it is the honest answer
+  # to "what did the system grow by" as long as somebody records it each time.
+  printf '  packages installed: %s\n' "$(pacman -Q | wc -l)"
+  printf '  total installed size: %s MiB\n' \
+    "$(pacman -Qi 2>/dev/null | awk -F': *' '
+        /^Installed Size/ {
+          v = $2; u = $2
+          sub(/[^0-9.].*$/, "", v); sub(/^[0-9.]+ */, "", u)
+          if (u ~ /^KiB/) v /= 1024
+          else if (u ~ /^B/) v /= 1048576
+          total += v
+        }
+        END { printf "%.0f", total }')"
 }
 printf '      --- P2 package sizes (informational) ---\n'
 p2_size 2>&1 | sed 's/^/      /'
