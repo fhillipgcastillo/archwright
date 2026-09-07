@@ -1,0 +1,23 @@
+# Rose Pine
+#
+# Archwright palette. Thirteen tokens, consumed by every themed config.
+# Generated files are produced from these values; nothing downstream
+# hardcodes a colour.
+name = Rose Pine
+# The nearest named libadwaita accent, for GTK4 apps - those take a
+# named accent rather than an arbitrary hex.
+gtk_accent = purple
+
+crust     = #16141f
+mantle    = #1f1d2e
+base      = #191724
+surface0  = #26233a
+surface1  = #403d52
+overlay   = #6e6a86
+subtext   = #908caa
+text      = #e0def4
+accent    = #c4a7e7
+alt1      = #f6c177
+alt2      = #9ccfd8
+alt3      = #31748f
+alt4      = #eb6f92

@@ -1,0 +1,23 @@
+# Tokyo Night
+#
+# Archwright palette. Thirteen tokens, consumed by every themed config.
+# Generated files are produced from these values; nothing downstream
+# hardcodes a colour.
+name = Tokyo Night
+# The nearest named libadwaita accent, for GTK4 apps - those take a
+# named accent rather than an arbitrary hex.
+gtk_accent = blue
+
+crust     = #0c0e14
+mantle    = #16161e
+base      = #1a1b26
+surface0  = #292e42
+surface1  = #3b4261
+overlay   = #565f89
+subtext   = #a9b1d6
+text      = #c0caf5
+accent    = #7aa2f7
+alt1      = #e0af68
+alt2      = #7dcfff
+alt3      = #9ece6a
+alt4      = #f7768e

@@ -1,0 +1,23 @@
+# Nord
+#
+# Archwright palette. Thirteen tokens, consumed by every themed config.
+# Generated files are produced from these values; nothing downstream
+# hardcodes a colour.
+name = Nord
+# The nearest named libadwaita accent, for GTK4 apps - those take a
+# named accent rather than an arbitrary hex.
+gtk_accent = blue
+
+crust     = #242933
+mantle    = #2e3440
+base      = #2e3440
+surface0  = #3b4252
+surface1  = #434c5e
+overlay   = #4c566a
+subtext   = #d8dee9
+text      = #eceff4
+accent    = #88c0d0
+alt1      = #ebcb8b
+alt2      = #81a1c1
+alt3      = #a3be8c
+alt4      = #bf616a

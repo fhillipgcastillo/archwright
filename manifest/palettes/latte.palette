@@ -1,0 +1,23 @@
+# Catppuccin Latte
+#
+# Archwright palette. Thirteen tokens, consumed by every themed config.
+# Generated files are produced from these values; nothing downstream
+# hardcodes a colour.
+name = Catppuccin Latte
+# The nearest named libadwaita accent, for GTK4 apps - those take a
+# named accent rather than an arbitrary hex.
+gtk_accent = purple
+
+crust     = #dce0e8
+mantle    = #e6e9ef
+base      = #eff1f5
+surface0  = #ccd0da
+surface1  = #bcc0cc
+overlay   = #9ca0b0
+subtext   = #6c6f85
+text      = #4c4f69
+accent    = #8839ef
+alt1      = #df8e1d
+alt2      = #1e66f5
+alt3      = #40a02b
+alt4      = #d20f39
