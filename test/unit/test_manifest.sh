@@ -152,7 +152,7 @@ rm -rf "$gtmp"
 extras="$ROOT/manifest/extras.packages"
 got="$(aw_manifest_groups "$extras" | tr '
 ' ',')"
-assert_eq "$got" "office,media,containers,browsers,ai-local,gaming,"   "extras groups are the documented set"
+assert_eq "$got" "office,media,containers,browsers,ai-local,gaming,desktop-tools,theming-gui,printing,"   "extras groups are the documented set"
 assert_eq "$(aw_manifest_group_requires "$extras" gaming)" "multilib"   "gaming declares its multilib requirement"
 for g in office media containers browsers ai-local; do
   if [ -n "$(aw_manifest_group_requires "$extras" "$g")" ]; then
