@@ -916,19 +916,28 @@ which the apps phase now does.
 
 ---
 
-## D17 — `pi` is not shipped as an agent stub
+## D17 — `pi` ships from `@earendil-works/pi-coding-agent` (REVISED)
 
-The design named six agent CLIs. Verifying them against the npm registry before
-planning found that `pi` has no installable command: `@mariozechner/pi-agent`
-publishes no `bin` at all, and `@mariozechner/pi` is a different tool whose
-binary is `pi-pods`.
+**Superseded. The original decision was wrong, and wrong for an avoidable
+reason.**
 
-A stub is a promise that the command works. One that fails on first invocation
-is worse than an absent stub, because the failure arrives minutes after install
-with no obvious cause. So `pi` is left out, and a unit test asserts it does not
-come back without someone re-checking.
+The first version of this decision dropped `pi` entirely, on the grounds that
+no installable `pi` CLI existed: `@mariozechner/pi-agent` publishes no `bin` at
+all, and `@mariozechner/pi` is a different tool whose binary is `pi-pods`.
 
-**Revisit when:** a `pi` CLI is published that declares a `bin`.
+Both of those facts are true, and both are about **the wrong packages**. pi is
+published by a different author. The correct package is
+`@earendil-works/pi-coding-agent` (0.85.1 at time of writing), it declares
+`bin: {pi}`, and <https://pi.dev/> documents it as the primary npm install.
+
+The failure was searching the registry for a name and reasoning from what came
+back, instead of going to the project's own page first. "I could not find it"
+was recorded as "it does not exist". A unit test now pins the package name, so
+the wrong one cannot quietly return.
+
+**Rule this leaves behind:** when verification comes back negative, check the
+upstream's own documentation before recording an absence. A negative result
+from a registry search is weak evidence.
 
 ## D18 — `gh` is a package, not a stub
 
@@ -950,19 +959,37 @@ So `bin/archwright` ships now with `agent`, `default`, `mise-install`,
 `sudo-window`, `version` and `help`. Milestone 6 adds `hardware` and `theme` to
 the same dispatcher rather than introducing a second command.
 
-## D20 — Only `~/.claude/skills` gets the shared skill link
+## D20 — The shared skill is linked into every agent's skills directory (REVISED)
 
-The design symlinked the shared agent skill directory into four places:
-`~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills` and
-`~/.agents/skills`. Of those, only the first is read by anything today. `pi` is
-not shipped at all (D17), and neither Codex nor the `~/.agents` path has a
-settled per-user skills convention to link into.
+**Superseded. The original decision was wrong about the purpose, and wrong
+about the facts.**
 
-Three symlinks that nothing follows is the plymouth pattern (L36): something
-shipped because it was in a plan, surviving because removing it looks riskier
-than leaving it. `AW_AGENT_SKILL_LINKS` in `lib/70-ai.sh` is a list, so adding
-one back is a one-line change — and the phase now asserts every link resolves,
-so a wrong path fails the install instead of shipping dead.
+The first version linked the shared skill only into `~/.claude/skills`, on the
+grounds that nothing else read a per-user skills directory, and that three
+symlinks nothing follows is the plymouth pattern (L36).
+
+That reasoning misses what the directory is *for*. The point of a shared skill
+describing this system's layout is that **any** agent on the machine can be
+asked to change the system - restyle the bar, turn off the idle lock, add a
+package - and finds the same description of how it is put together. An agent
+without the link is an agent that has to be told all of it again, or that
+guesses. The links are not decoration around one supported agent; they are the
+mechanism.
+
+The factual claim was also wrong. All four paths are real:
+
+| Path | Read by |
+|---|---|
+| `~/.claude/skills` | Claude Code |
+| `~/.codex/skills` | Codex CLI |
+| `~/.pi/agent/skills` | pi |
+| `~/.agents/skills` | the cross-agent location in the agentskills.io standard |
+
+`~/.agents/skills` in particular is a standard, not a guess, and pi scans it.
+
+The plymouth comparison does not hold either: plymouth was a package nothing
+configured, costing disk and boot time. A symlink into a directory an agent may
+create later costs nothing and is already correct when that agent arrives.
 
 ---
 
@@ -1037,3 +1064,102 @@ from the path and then asserts the link resolves.
 | `sudo-window`'s re-exec through `sudo` is not gated | The VM assertions already run as root, so they exercise everything after the re-exec. The re-exec itself is three lines and unit-tested for the validation that precedes it. |
 | Agent auto-approve flag names are not verified | They ship commented out, so a stale flag produces an error the user sees immediately rather than a silent wrong behaviour. The file says to check `--help`. |
 | No agent skill is verified to be *read* | The link resolves and the file parses as a skill, but nothing asserts Claude Code actually loads it — that would mean driving an agent inside the gate. |
+
+### L48 — The sudo window survived a reboot, which is the thing it exists to prevent
+An adversarial review of the finished feature found the hole: the drop-in in
+`/etc/sudoers.d` is persistent, and a `systemd-run` transient unit lives in
+`/run` and is destroyed at shutdown. Reboot inside the window - a crash, a
+power cut, or simply rebooting - and the machine came back with permanent
+passwordless root and nothing left to remove it. The code, the README and L44
+all asserted the opposite in as many words.
+
+Closed with a tmpfiles rule (`r!`, boot-only) that deletes the drop-in at every
+boot. The gate runs `systemd-tmpfiles --remove --boot` directly, so it exercises
+the real path, and separately asserts the periodic clean does **not** remove a
+window that is legitimately open.
+
+**Trigger:** a fresh reviewer asked what happens on reboot. Neither the unit
+tests nor the VM gate could have found it: the gate boots the machine exactly
+once, before any window is ever opened.
+
+### L49 — A monotonic countdown does not run while a laptop is asleep
+Same review, same feature. `--on-active=15m` is `CLOCK_MONOTONIC`, which stops
+across suspend. Close the lid two minutes in, open it three days later, and
+thirteen minutes of passwordless root were still to come. "A closed lid cannot
+leave the window open" was exactly backwards.
+
+Now an absolute wall-clock deadline via `--on-calendar`, which fires on resume
+if the time has passed.
+
+**Trigger:** the same question asked about a second state transition.
+
+### L50 — The most dangerous field had the weakest validation
+`manifest/agents.tsv` has three fields. Two got charset gates; the third - the
+executable name - got only an empty/whitespace check, and it is the one
+interpolated **unquoted** into the generated launcher. A row of
+`$(id>/tmp/x)y` produced a stub that passed `bash -n`, was installed 0755 onto
+the login PATH, and was wired to a compositor keybind.
+
+The comment two blocks above it said "this is a security check, not tidiness".
+It was on the wrong field.
+
+All three now share one rule, in both copies of the generator, with the payload
+list as test data. The lesson generalises: validate the field by what it *does*
+in the output, not by how dangerous it looks in the input.
+
+**Trigger:** a reviewer instructed to find an unvalidated interpolation, who
+wrote the exploit rather than describing it.
+
+### L51 — `grep -qx` anchors lines, not strings
+`is_command_name` used `printf '%s' "$v" | grep -qxE '...'`. `-x` anchors each
+LINE, so any multi-line value passes if one of its lines is legal:
+`$'codex\n../../etc/evil'` was accepted. It gated `$SUDO_USER` before a sudoers
+write. No working escape was demonstrated - a newline is a literal path
+character, so the resulting component never exists - but a security primitive
+should not be one `grep` semantic away from mattering. Now `[[ =~ ]]`, whose
+anchors are string anchors.
+**Trigger:** the same review, testing the validator rather than reading it.
+
+### L52 — The security-critical file was not being linted
+`test/lint.sh` globbed `*.sh`. Commands installed onto the finished system have
+no extension by design, so `bin/archwright` - the file that writes to
+`/etc/sudoers.d` - was outside the lint gate from the day it was added, and
+`bin/archwright-limine-update` had been for two milestones before that. The
+glob now takes `bin/*` by path.
+**Trigger:** a reviewer checking whether the oracle covered the new code, rather
+than assuming a green oracle meant covered code.
+
+### L53 — The file teaching the ownership contract was breaking it
+`lib/70-ai.sh` wrote the shared `SKILL.md` into the user's tree with a plain
+`install`, so re-running the phase discarded any edit they had made. The
+document being overwritten is the one that tells agents "Archwright seeds a
+user config file once, when it does not exist, and never again". The canonical
+copy now lives in `/usr/share/archwright/`, which the ownership table says is
+ours to replace, and the user's copy is seeded from it.
+
+Two smaller versions of the same mistake in the same loop: `install -d` reset
+the mode of an existing `~/.claude` (which may be 0700 deliberately), and
+`ln -sfn` onto an existing real directory would have created a link inside it.
+**Trigger:** a reviewer checking a stated rule against the code that states it.
+
+### L54 — An assertion pointed at a directory the code never writes to
+`test_cli.sh` checked that a rejected `sudo-window` left no file behind - by
+searching the sandboxed `$HOME`, while the CLI writes to `/etc/sudoers.d`. It
+could not fail for any implementation, including one that wrote to the real
+`/etc/sudoers.d` on every rejected input. `ARCHWRIGHT_SUDOERS_D` existed
+specifically to make this testable and no test used it, partly because a
+comment described it as "not a test hook".
+**Trigger:** a reviewer asking of each assertion "would this fail if the
+feature were broken?"
+
+### L55 — A negative verification result is weak evidence
+D17 dropped `pi` because a registry search for the name returned packages that
+did not provide the command. The correct package is published under a different
+author, and the project's own front page documents it. "I could not find it"
+became "it does not exist" without ever checking upstream.
+
+The rule that catches package problems before planning still holds; this adds
+to it. A **positive** registry result is strong evidence. A **negative** one is
+not, and must be checked against the project's own documentation before an
+absence is recorded as a decision.
+**Trigger:** the user supplying the URL the search should have led to.

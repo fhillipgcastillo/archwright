@@ -21,8 +21,8 @@ desktop portals.
 and a PDF viewer, with sensible defaults — double-clicking a file opens the
 right thing. Plus the CLI staples (eza, bat, fd, fzf, lazygit, btop).
 
-**AI tooling:** launchers for Claude Code, Codex, opencode and Crush, plus the
-GitHub CLI. Nothing is downloaded at install time — see below.
+**AI tooling:** launchers for Claude Code, Codex, opencode, Crush and pi, plus
+the GitHub CLI. Nothing is downloaded at install time — see below.
 
 **What does not exist yet:** theming and hardware driver selection
 (milestone 6); the written guide (milestone 7).
@@ -242,8 +242,8 @@ Set up key authentication before you do that on any network you do not control.
 
 ### The AI tooling
 
-Four agent CLIs are available from first login: `claude`, `codex`, `opencode`
-and `crush`, plus `gh` for GitHub.
+Five agent CLIs are available from first login: `claude`, `codex`, `opencode`,
+`crush` and `pi`, plus `gh` for GitHub.
 
 **None of them is downloaded at install time.** Each is a small launcher in
 `~/.local/bin` that hands the job to `mise`, which fetches and caches the real
@@ -278,10 +278,19 @@ archwright sudo-window 30    # 30 minutes, then it removes itself
 
 This exists because a long run of privileged commands otherwise means a
 password prompt every few minutes. It is safer than the permanent `NOPASSWD`
-line people usually end up with: the rule is checked with `visudo` before it is
-installed, and a systemd timer removes it whether or not your terminal survives
-— a crashed shell or a closed lid cannot leave it open. It is still real root
-access with no password. Ask for the shortest window that does the job.
+line people usually end up with, and the difference is in the failure cases:
+
+- The rule is checked with `visudo` **before** it is installed — a malformed
+  file in `/etc/sudoers.d` locks you out of root with no way back.
+- The timer is scheduled **before** the grant is written, so there is no moment
+  where the grant exists and nothing is due to remove it.
+- The deadline is a **wall-clock time**, not a countdown, so suspending the
+  machine does not extend the window.
+- It is removed **at every boot** regardless, because a reboot destroys the
+  timer but not the file.
+
+It is still real root access with no password for as long as it is open. Ask
+for the shortest window that does the job.
 
 Close one early with:
 
@@ -289,9 +298,15 @@ Close one early with:
 sudo rm -f /etc/sudoers.d/99-archwright-sudo-window
 ```
 
-Agents that start on this machine also find a skill at
-`~/.claude/skills/archwright` describing the system's layout — where
-configuration lives, what owns what, and what not to edit.
+**Every agent finds the same description of this system.** A skill covering the
+layout — where configuration lives, what owns what, what not to edit — is
+installed once and linked into each agent's skills directory:
+`~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills` and
+`~/.agents/skills`. So you can ask whichever agent you prefer to restyle the
+bar or change a keybind, and it starts out knowing where those things are
+rather than guessing. The copy under
+`~/.local/share/archwright/agent-skills/` is yours to edit; the links all point
+at it.
 
 For a local model instead of a hosted one, install with `EXTRAS=ai-local` to
 get Ollama.

@@ -24,9 +24,37 @@ AW_SUDO_MAX_MINUTES=240
 die() { printf 'archwright: %s\n' "$*" >&2; exit 1; }
 usage_error() { printf 'archwright: %s\n\n' "$*" >&2; usage >&2; exit 2; }
 
-# A command name is used to build a path and is later executed. Same charset
-# rule as the answer file: this is a security boundary, not tidiness.
-is_command_name() { printf '%s' "${1-}" | grep -qxE '[a-z][a-z0-9-]*'; }
+# --- validation ---------------------------------------------------------------
+#
+# These are security boundaries, not tidiness. Each value below is either used
+# to build a path, interpolated into a generated script, or written into a
+# sudoers rule.
+#
+# `[[ =~ ]]` rather than `grep -qxE`: grep -x anchors each LINE, so a value
+# containing a newline passes whenever any one of its lines is legal. Bash's ^
+# and $ anchor the whole string.
+
+# A command name. Becomes a filename and is later executed.
+is_command_name() { [[ ${1-} =~ ^[a-z][a-z0-9-]*$ ]]; }
+
+# A login name. Deliberately NOT is_command_name: useradd and the installer's
+# own answer-file validator both accept underscores, so reusing the command
+# rule here made sudo-window permanently unusable for anyone called john_doe -
+# and told them it was "refusing to write a rule" for them, which reads like an
+# accusation rather than a bug.
+is_user_name() { [[ ${1-} =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
+
+# A mise spec: a backend, then a package that may be scoped. Interpolated into
+# a double-quoted string in the generated stub, so anything that could end that
+# string is out - the backslash included. A backslash survives the generator
+# and is re-read as an escape, producing a stub that is not valid bash while
+# the command reports success.
+is_mise_spec() { [[ ${1-} =~ ^[a-z][a-z0-9]*:@?[A-Za-z0-9._/-]+$ ]]; }
+
+# The executable inside the package. Interpolated UNQUOTED, because it is a
+# command word rather than an argument, which makes it the most dangerous of
+# the three.
+is_bin_name() { [[ ${1-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 
 usage() {
   cat <<'EOF'
@@ -116,10 +144,9 @@ cmd_agent() {
 cmd_mise_install() {
   local spec="${1-}" name="${2-}"
   [ -n "$spec" ] || usage_error "mise-install: which package? e.g. npm:@scope/tool"
-  case "$spec" in
-    *[[:space:]]*|*'"'*|*'$'*|*'`'*)
-      usage_error "mise-install: [$spec] contains characters that cannot appear in a spec" ;;
-  esac
+  [ "$#" -le 2 ] || usage_error "mise-install: too many arguments (spec, then optionally a command name)"
+  is_mise_spec "$spec" \
+    || usage_error "mise-install: [$spec] is not a usable package spec (expected something like npm:@scope/tool)"
 
   # Infer the command from the tail of the spec when it is not given, which is
   # right for npm:tool and for npm:@scope/tool alike.
@@ -129,6 +156,11 @@ cmd_mise_install() {
   fi
   is_command_name "$name" \
     || usage_error "mise-install: [$name] is not a usable command name; pass one explicitly"
+  # The name is also the executable inside the package, and goes into the stub
+  # unquoted. is_command_name already excludes everything dangerous, but say so
+  # explicitly rather than relying on two rules happening to coincide.
+  is_bin_name "$name" \
+    || usage_error "mise-install: [$name] is not a usable executable name"
 
   mkdir -p "$AW_BIN_DIR" || die "could not create $AW_BIN_DIR"
   if [ -e "$AW_BIN_DIR/$name" ]; then
@@ -154,20 +186,37 @@ EOF
 # are typing a password every few minutes, or a permanent NOPASSWD line that
 # outlives the reason for it. This is the middle: a grant that removes itself.
 #
-# Two things make it safe enough to ship:
+# Four things make it safe enough to ship, and three of them exist because a
+# review found the naive version leaves permanent passwordless root behind:
 #
 #   * The rule is validated with visudo BEFORE it goes anywhere near
 #     /etc/sudoers.d. A malformed file there locks you out of root on the
 #     machine, permanently, with no way back in from a running session.
-#   * The revert is a systemd transient timer, not a background sleep. A
-#     crashed terminal, a closed lid or a killed shell cannot leave the window
-#     open, because nothing about the revert depends on this process surviving.
+#   * The revert is a systemd timer, not a background sleep, so a crashed
+#     terminal or a killed shell cannot leave the window open.
+#   * The timer is scheduled BEFORE the grant is installed. The other order has
+#     a window - Ctrl-C, a power cut - where the rule exists and nothing is due
+#     to remove it. A timer with no file to delete is a no-op; a file with no
+#     timer is permanent root.
+#   * The deadline is a wall-clock time, not "N minutes from now". A monotonic
+#     timer does not advance across suspend, so closing the lid two minutes into
+#     a fifteen-minute window used to leave thirteen minutes still to run,
+#     whenever the machine woke up - days later, if that is when it woke.
+#
+# The remaining hole is a reboot: /etc/sudoers.d is persistent and a transient
+# timer is not, so a machine that reboots mid-window would come back with the
+# grant still in place and nothing left to remove it. That is closed outside
+# this file, by the tmpfiles rule lib/70-ai.sh installs, which deletes the
+# drop-in at every boot.
 
 cmd_sudo_window() {
   local minutes user
   # An omitted argument means the default. An argument that was GIVEN must be
   # valid, so `sudo-window ""` is an error rather than a silent 15 minutes.
   if [ "$#" -eq 0 ]; then minutes=15; else minutes="$1"; fi
+  # For a command that grants root, "I typed something and it was ignored" is
+  # not an acceptable outcome.
+  [ "$#" -le 1 ] || usage_error "sudo-window: too many arguments (expected just a number of minutes)"
 
   case "$minutes" in
     ''|*[!0-9]*) usage_error "sudo-window: [$minutes] is not a whole number of minutes" ;;
@@ -185,15 +234,23 @@ cmd_sudo_window() {
   fi
 
   user="${SUDO_USER:-root}"
-  is_command_name "$user" || die "sudo-window: refusing to write a rule for [$user]"
+  is_user_name "$user" \
+    || die "sudo-window: [$user] is not a valid login name"
+  getent passwd "$user" >/dev/null 2>&1 \
+    || die "sudo-window: no such account: $user"
 
+  # Build and CHECK the rule before anything is scheduled or installed.
   local tmp
   tmp="$(mktemp)" || die "could not create a temporary file"
   chmod 0440 "$tmp"
+  local deadline
+  deadline="$(date -d "+${minutes} minutes" '+%Y-%m-%d %H:%M:%S')" \
+    || die "could not work out when the window should close"
+
   cat > "$tmp" <<EOF
-# Written by 'archwright sudo-window $minutes'. A systemd timer removes this
-# file when the window closes; if you are reading it long after that, the timer
-# did not run and you should delete it by hand.
+# Written by 'archwright sudo-window $minutes' at $(date '+%Y-%m-%d %H:%M:%S').
+# Due to be removed at $deadline, and removed at boot regardless.
+# If you are reading this well after that time, remove it by hand.
 $user ALL=(ALL:ALL) NOPASSWD: ALL
 EOF
 
@@ -202,27 +259,42 @@ EOF
     die "the generated rule did not pass visudo - refusing to install it"
   fi
 
-  install -m 0440 -o root -g root "$tmp" "$AW_SUDO_DROPIN" \
-    || { rm -f "$tmp"; die "could not install $AW_SUDO_DROPIN"; }
+  # Clear any previous window, unit and all. Stopping the timer alone leaves a
+  # failed transient service behind, and systemd refuses to create a unit whose
+  # name already exists - which would wedge sudo-window until someone ran
+  # reset-failed by hand, with an error message that gives no hint of it.
+  systemctl stop "$AW_SUDO_UNIT.timer" "$AW_SUDO_UNIT.service" >/dev/null 2>&1
+  systemctl reset-failed "$AW_SUDO_UNIT.timer" "$AW_SUDO_UNIT.service" >/dev/null 2>&1
+
+  # Schedule the revert FIRST. If this fails, nothing has been granted.
+  #
+  # --on-calendar rather than --on-active: an absolute wall-clock deadline
+  # survives suspend, where a monotonic countdown simply stops. AccuracySec is
+  # pinned because systemd otherwise gives timers a minute of slack and
+  # coalesces them with other wakeups, so a stated deadline would be a
+  # suggestion.
+  systemd-run --quiet --unit="$AW_SUDO_UNIT" \
+      --on-calendar="$deadline" \
+      --timer-property=AccuracySec=1s \
+      /usr/bin/rm -f "$AW_SUDO_DROPIN" \
+    || { rm -f "$tmp"; die "could not schedule the revert - nothing was granted"; }
+
+  # Install atomically. `install` truncates in place, and a concurrent sudo that
+  # reads a half-written rule gets a parse error and refuses to run. A rename
+  # within the same directory is atomic, and sudo ignores dotfiles in
+  # sudoers.d, so the staging name is never picked up.
+  local staged="$AW_SUDOERS_D/.99-archwright-sudo-window.staged"
+  if ! install -m 0440 -o root -g root "$tmp" "$staged" \
+     || ! mv -f "$staged" "$AW_SUDO_DROPIN"; then
+    rm -f "$tmp" "$staged"
+    systemctl stop "$AW_SUDO_UNIT.timer" >/dev/null 2>&1
+    die "could not install $AW_SUDO_DROPIN - nothing was granted"
+  fi
   rm -f "$tmp"
 
-  # Replace any window still pending, so asking twice extends rather than
-  # leaving the first timer to close the second window early.
-  systemctl stop "$AW_SUDO_UNIT.timer" >/dev/null 2>&1
-  # AccuracySec, explicitly. systemd defaults transient timers to one minute of
-  # slack and will happily coalesce this with other wakeups, so a 15-minute
-  # window would actually close somewhere between 15 and 16 minutes. For a
-  # passwordless root grant, "roughly" is the wrong unit: say when it ends and
-  # end it then. Costs one extra timer wakeup.
-  if ! systemd-run --quiet --on-active="${minutes}m" --unit="$AW_SUDO_UNIT" \
-       --timer-property=AccuracySec=1s \
-       /usr/bin/rm -f "$AW_SUDO_DROPIN"; then
-    rm -f "$AW_SUDO_DROPIN"
-    die "could not schedule the revert - the window was NOT opened"
-  fi
-
-  printf 'passwordless sudo granted to %s for %s minute(s).\n' "$user" "$minutes"
-  printf 'it reverts on its own; close it now with: sudo rm -f %s\n' "$AW_SUDO_DROPIN"
+  printf 'passwordless sudo granted to %s until %s.\n' "$user" "$deadline"
+  printf 'it closes on its own, and at the next boot whatever happens.\n'
+  printf 'close it now with: sudo rm -f %s\n' "$AW_SUDO_DROPIN"
 }
 
 # --- dispatch ----------------------------------------------------------------

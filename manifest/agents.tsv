@@ -16,8 +16,9 @@
 #
 # Every spec below was verified against the npm registry on 2026-09-07,
 # including that the package actually declares the executable named in the
-# third field. pi is absent because it declares none (D17).
+# third field.
 claude	npm:@anthropic-ai/claude-code	claude
 codex	npm:@openai/codex	codex
 opencode	npm:opencode-ai	opencode
 crush	npm:@charmland/crush	crush
+pi	npm:@earendil-works/pi-coding-agent	pi

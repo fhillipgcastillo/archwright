@@ -250,7 +250,7 @@ check "node toolchain installed"     sh -c 'command -v node npm >/dev/null'
 # manifest on purpose: an assertion that reads the same data it is checking
 # passes when a row is deleted.
 check "stub tree installed"          test -d /usr/share/archwright/agent-stubs
-for agent in claude codex opencode crush; do
+for agent in claude codex opencode crush pi; do
   check "launcher seeded: $agent"    test -x "$AW_HOME/.local/bin/$agent"
 done
 check "launcher calls mise"          sh -c 'grep -q "exec mise exec" '"$AW_HOME"'/.local/bin/claude'
@@ -259,12 +259,16 @@ owned_by_user() { [ "$(stat -c %U "$1")" = "$AW_USER" ]; }
 check "launchers belong to the user" owned_by_user "$AW_HOME/.local/bin/claude"
 check "state dir belongs to the user" owned_by_user "$AW_HOME/.local/state/archwright"
 
-# The shared skill has to be reachable THROUGH the symlink. Checking that a
+# The shared skill has to be reachable THROUGH each symlink. Checking that a
 # symlink exists would pass on a dangling one, which is the failure that
-# actually happens when a path changes.
-check "shared skill installed"       test -f "$AW_HOME/.local/share/archwright/agent-skills/archwright/SKILL.md"
-check "skill link is a symlink"      test -L "$AW_HOME/.claude/skills/archwright"
-check "skill link resolves"          test -f "$AW_HOME/.claude/skills/archwright/SKILL.md"
+# actually happens when a path changes - and these are not all at the same
+# depth, so the relative link is computed rather than assumed.
+check "canonical skill installed"    test -f /usr/share/archwright/agent-skills/archwright/SKILL.md
+check "shared skill seeded"          test -f "$AW_HOME/.local/share/archwright/agent-skills/archwright/SKILL.md"
+for skilldir in .claude/skills .codex/skills .pi/agent/skills .agents/skills; do
+  check "skill link is a symlink: $skilldir" test -L "$AW_HOME/$skilldir/archwright"
+  check "skill link resolves: $skilldir"     test -f "$AW_HOME/$skilldir/archwright/SKILL.md"
+done
 
 # Login-shell wiring. A LOGIN shell, not this one: /etc/profile.d is only read
 # at login, so checking the current environment would test nothing.
@@ -334,6 +338,36 @@ check "the revert timer is armed"    sh -c 'systemctl is-active archwright-sudo-
 sleep 75
 check "the window reverted on its own" sh -c "! test -f $SUDO_DROPIN"
 check "sudoers still parses after the revert" visudo -c
+
+# The reboot case, which the timer alone does NOT cover: /etc/sudoers.d is
+# persistent and a transient timer is not, so a machine that reboots mid-window
+# would come back with permanent passwordless root and nothing left to remove
+# it. A tmpfiles rule closes that.
+#
+# This runs the exact command the boot runs, rather than rebooting the VM, so
+# it tests the real path without a second boot cycle.
+check "boot cleanup rule installed" test -f /usr/lib/tmpfiles.d/archwright-sudo-window.conf
+boot_cleanup_removes_it() {
+  install -m 0440 /dev/null "$SUDO_DROPIN"
+  printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$AW_USER" > "$SUDO_DROPIN"
+  [ -f "$SUDO_DROPIN" ] || return 1
+  systemd-tmpfiles --remove --boot --prefix=/etc/sudoers.d >/dev/null 2>&1
+  ! [ -f "$SUDO_DROPIN" ]
+}
+check "a window left by a reboot is removed at boot" boot_cleanup_removes_it
+
+# And the periodic clean must NOT remove a window that is legitimately open,
+# which is what the '!' in the tmpfiles rule is for.
+periodic_clean_leaves_it() {
+  printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$AW_USER" > "$SUDO_DROPIN"
+  systemd-tmpfiles --remove --prefix=/etc/sudoers.d >/dev/null 2>&1
+  local still=0
+  [ -f "$SUDO_DROPIN" ] && still=1
+  rm -f "$SUDO_DROPIN"
+  [ "$still" -eq 1 ]
+}
+check "an open window survives the periodic clean" periodic_clean_leaves_it
+check "sudoers still parses at the end" visudo -c
 
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.

@@ -219,10 +219,20 @@ done < <(aw_manifest_agents "$agents")
 assert_eq "$(aw_manifest_agents "$agents" | cut -f1 | sort | uniq -d)" "" \
   "agents.tsv: no duplicate command names"
 
-# D17: pi publishes no executable, so a stub for it would fail on first run.
-if aw_manifest_agents "$agents" | cut -f1 | grep -qx 'pi'; then
-  _fail "agents.tsv" "pi has no installable CLI - see D17"
-else _pass; fi
+# Each shipped agent, by name. Written out rather than counted: a row silently
+# dropped from the manifest is the failure this catches.
+for required in claude codex opencode crush pi; do
+  if aw_manifest_agents "$agents" | cut -f1 | grep -qx "$required"; then _pass
+  else _fail "agents.tsv" "agent missing: $required"; fi
+done
+
+# D17 (revised): pi ships from @earendil-works/pi-coding-agent. The first
+# search for it found @mariozechner/pi-agent, which publishes no bin at all,
+# and concluded no pi CLI existed. Pin the package so that mistake cannot
+# quietly return.
+assert_eq "$(aw_manifest_agents "$agents" | awk -F'\t' '$1 == "pi" { print $2 }')" \
+  "npm:@earendil-works/pi-coding-agent" \
+  "pi resolves to the package that actually ships the pi command"
 
 # D18: gh is packaged by Arch. Stubs exist only for what Arch does not package.
 if aw_manifest_agents "$agents" | cut -f1 | grep -qx 'gh'; then

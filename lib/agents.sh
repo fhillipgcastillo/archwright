@@ -39,6 +39,30 @@ exec mise exec "$spec" -- $bin "\$@"
 EOF
 }
 
+# --- validation --------------------------------------------------------------
+#
+# Every one of these fields is interpolated into a script that later runs as the
+# user, so each is a security boundary rather than a tidiness check.
+#
+# `[[ =~ ]]` rather than `grep -qxE`: grep -x anchors each LINE, so a value
+# containing a newline passes if any one of its lines matches. Bash's ^ and $
+# anchor the whole string.
+
+# A command name. Becomes a filename, so it must not contain a path separator.
+aw_agent_valid_name() { [[ ${1-} =~ ^[a-z][a-z0-9-]*$ ]]; }
+
+# A mise spec: backend, then a package that may be scoped. Anything outside
+# this set could end the quoted string it is interpolated into. The backslash
+# matters as much as the quote does - it survives the generator's heredoc and
+# is then re-read as an escape inside the generated string, which produces a
+# stub that is not valid bash while reporting success.
+aw_agent_valid_spec() { [[ ${1-} =~ ^[a-z][a-z0-9]*:@?[A-Za-z0-9._/-]+$ ]]; }
+
+# The executable inside the package. This one is interpolated UNQUOTED - it is
+# a command word, not an argument - so it is the most dangerous field of the
+# three and gets the strictest treatment.
+aw_agent_valid_bin() { [[ ${1-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+
 # Regenerate the whole stub tree from a manifest.
 #
 # This owns its destination directory (/usr/share/archwright/agent-stubs) and
@@ -50,21 +74,18 @@ aw_agent_write_stubs() {
   [ -f "$manifest" ] || aw_die "agent manifest not found: $manifest"
   install -d -m 0755 "$dest" || aw_die "could not create $dest"
 
+  # This directory is ours and mirrors the manifest exactly. Without the clean
+  # a row deleted from the manifest leaves its stub behind on an updated
+  # system, so /usr/share goes on advertising an agent the project removed -
+  # which is the same broken promise D17 refuses to ship.
+  find "$dest" -mindepth 1 -maxdepth 1 -type f -exec rm -f {} + \
+    || aw_die "could not clear the stub tree at $dest"
+
   while IFS=$'\t' read -r name spec bin; do
     [ -n "$name" ] || continue
-    # A name is used as a filename. Anything but a plain command name could
-    # write outside $dest, so this is a security check, not tidiness.
-    printf '%s' "$name" | grep -qxE '[a-z][a-z0-9-]*' \
-      || aw_die "invalid agent name in $manifest: [$name]"
-    # The spec is interpolated into the generated script. Whitespace there
-    # would split into extra arguments to mise; a quote would end the string.
-    case "$spec" in
-      ''|*[[:space:]]*|*'"'*|*'$'*|*'`'*)
-        aw_die "invalid mise spec for $name: [$spec]" ;;
-    esac
-    case "$bin" in
-      ''|*[[:space:]]*) aw_die "invalid executable name for $name: [$bin]" ;;
-    esac
+    aw_agent_valid_name "$name" || aw_die "invalid agent name in $manifest: [$name]"
+    aw_agent_valid_spec "$spec" || aw_die "invalid mise spec for $name: [$spec]"
+    aw_agent_valid_bin  "$bin"  || aw_die "invalid executable name for $name: [$bin]"
     aw_agent_stub_text "$name" "$spec" "$bin" > "$dest/$name" \
       || aw_die "could not write the stub for $name"
     chmod 0755 "$dest/$name" || aw_die "could not make $name executable"

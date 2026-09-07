@@ -26,7 +26,15 @@ CLI="$ROOT/bin/archwright"
 # "launching a missing agent fails" case quietly LAUNCHED CLAUDE instead of
 # testing anything. The CLI looks in ~/.local/bin first and falls back to PATH,
 # so both halves need a PATH we control.
-aw_cli() { HOME="$tmp/home" PATH="/usr/bin:/bin" bash "$CLI" "$@"; }
+#
+# ARCHWRIGHT_SUDOERS_D points the sudoers path at the sandbox. Without it the
+# "a rejected sudo-window left nothing behind" assertion searched a directory
+# the CLI never writes to, and so could not fail for any implementation -
+# including one that wrote to the real /etc/sudoers.d on every rejected input.
+aw_cli() {
+  HOME="$tmp/home" PATH="/usr/bin:/bin" \
+  ARCHWRIGHT_SUDOERS_D="$tmp/sudoers.d" bash "$CLI" "$@"
+}
 
 status_of() { aw_cli "$@" >/dev/null 2>&1; printf '%s' "$?"; }
 
@@ -71,6 +79,14 @@ assert_eq "$(cat "$state" 2>/dev/null)" "codex" "a rejected name does not overwr
 
 assert_eq "$(status_of default nosuch value)" "2" "an unknown default key exits 2"
 
+# A newline defeats `grep -qx`, which anchors each LINE rather than the whole
+# string, so a two-line value passes if either line is a legal command name.
+# The name is used to build a path and is then executed.
+assert_eq "$(status_of default agent "$(printf 'codex\n../../etc/evil')")" "2" \
+  "an embedded newline does not slip past the name check"
+assert_eq "$(cat "$state" 2>/dev/null)" "codex" \
+  "the multi-line name did not reach the state file"
+
 # --- mise-install ------------------------------------------------------------
 assert_eq "$(status_of mise-install npm:some-tool some-tool)" "0" \
   "mise-install writes a stub"
@@ -90,6 +106,28 @@ assert_eq "$(status_of mise-install)" "2" "mise-install with no spec exits 2"
 assert_eq "$(status_of mise-install "npm:a b")" "2" \
   "mise-install rejects a spec containing whitespace"
 
+# The CLI carries its own copy of the stub generator, so it needs its own copy
+# of the validation - and its own proof. lib/agents.sh is tested separately;
+# these assertions exist because the two can drift apart.
+# Injection payloads: they must stay literal. See test_agents.sh.
+# shellcheck disable=SC2016,SC1003
+for bad in 'npm:x\' 'npm:x"y' 'npm:x$y' 'npm:x`y' 'npm:x;y' 'npm:x|y' 'npm:x&y'; do
+  assert_eq "$(status_of mise-install "$bad" tool)" "2" \
+    "mise-install rejects the spec [$bad]"
+done
+# shellcheck disable=SC2016,SC1003
+for bad in '$(id)x' '`id`' 'a;id' 'a|id' '*' 'a b' 'a\b' 'a"b'; do
+  assert_eq "$(status_of mise-install npm:x "$bad")" "2" \
+    "mise-install rejects the command name [$bad]"
+done
+
+# Whatever survives validation must PARSE. Greping the generated stub for a
+# substring would pass on a file that is not valid bash - which is exactly how
+# the backslash case shipped.
+aw_cli mise-install npm:@scope/pkg.name-1_2 parsecheck >/dev/null 2>&1
+if bash -n "$tmp/home/.local/bin/parsecheck" 2>/dev/null; then _pass
+else _fail "cli" "mise-install generated a stub that is not valid bash"; fi
+
 # An existing file is never clobbered: the user may have installed the real
 # thing there, and losing it to a stub would be silent.
 printf 'MINE\n' > "$tmp/home/.local/bin/precious"
@@ -105,10 +143,11 @@ for bad in "abc" "0" "-5" "1.5" "241" "15m" "" "1 2"; do
   assert_eq "$(status_of sudo-window "$bad")" "2" "sudo-window rejects [$bad]"
 done
 
-# It must not have created anything anywhere in the sandbox while refusing.
-if find "$tmp/home" -name '*sudo*' | grep -q .; then
-  _fail "cli" "a rejected sudo-window left a file behind"
-else _pass; fi
+# It must not have created anything in the sudoers directory while refusing.
+# The directory is the sandboxed one, so this can actually fail.
+mkdir -p "$tmp/sudoers.d"
+if [ -z "$(find "$tmp/sudoers.d" -mindepth 1)" ]; then _pass
+else _fail "cli" "a rejected sudo-window wrote into the sudoers directory"; fi
 
 # --- agent -------------------------------------------------------------------
 # With no stub and no such command installed, launching must fail with a

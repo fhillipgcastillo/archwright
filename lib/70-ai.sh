@@ -23,12 +23,21 @@ AW_AGENT_SKILL_DIR_REL=".local/share/archwright/agent-skills"
 
 # Where the shared skill directory is linked from.
 #
-# Only Claude Code has a settled convention for a per-user skills directory, so
-# only that link is made. Linking into ~/.codex, ~/.pi and ~/.agents was in the
-# design, but nothing reads those paths today and shipping something nothing
-# reads is exactly what got plymouth removed (L36, D20). This is a list so
-# adding one later is a one-line change.
-AW_AGENT_SKILL_LINKS=".claude/skills"
+# The point of a SHARED skill directory is that every agent on the machine can
+# be asked to change the system - "restyle the bar", "turn off the idle lock" -
+# and finds the same description of how this system is laid out. An agent
+# without the link is an agent that has to be told all of it again, or that
+# guesses. So the link goes everywhere an agent looks, including agents not
+# installed yet: the directory costs nothing and is already correct when one
+# arrives.
+#
+# All four paths are real conventions, verified:
+#   ~/.claude/skills      Claude Code
+#   ~/.codex/skills       Codex CLI
+#   ~/.pi/agent/skills    pi
+#   ~/.agents/skills      the cross-agent location in the agentskills.io
+#                         standard, which pi and others scan
+AW_AGENT_SKILL_LINKS=".claude/skills .codex/skills .pi/agent/skills .agents/skills"
 
 aw_ai() {
   local manifest="$AW_ROOT/$AW_AGENT_MANIFEST_REL"
@@ -68,32 +77,64 @@ aw_ai() {
     fi
   done < <(aw_manifest_agents "$manifest")
 
+  # The canonical copy is ours and is replaced on every run; the user's copy is
+  # SEEDED from it and never overwritten.
+  #
+  # This was an unconditional `install` into the user's tree, which is exactly
+  # the contract the shipped skill teaches agents to rely on - "Archwright
+  # seeds a user config file once and never again". The file that says that was
+  # the file breaking it: a re-run of this phase discarded any edit the user
+  # had made to their own copy, silently.
   aw_log info "installing the shared agent skill"
-  local skilldir="$home/$AW_AGENT_SKILL_DIR_REL/archwright"
-  install -d -m 0755 "$skilldir"
+  install -d -m 0755 /mnt/usr/share/archwright/agent-skills/archwright
   install -m 0644 "$AW_ROOT/config/agent-skills/archwright/SKILL.md" \
-    "$skilldir/SKILL.md" \
+    /mnt/usr/share/archwright/agent-skills/archwright/SKILL.md \
     || aw_die "could not install the shared agent skill"
 
-  local link up rest
+  rc=0
+  aw_seed_config /mnt/usr/share/archwright/agent-skills \
+    "$home/$AW_AGENT_SKILL_DIR_REL" "archwright/SKILL.md" || rc=$?
+  [ "$rc" -le 1 ] || aw_die "could not seed the shared agent skill"
+
+  local link up rest target
   for link in $AW_AGENT_SKILL_LINKS; do
-    install -d -m 0755 "$home/$link"
+    # mkdir, not `install -d`: install -d resets the mode of a directory that
+    # already exists, and ~/.claude or ~/.pi may well be 0700 on purpose.
+    mkdir -p "$home/$link" || aw_die "could not create $link"
+    target="$home/$link/archwright"
+
     # Relative to the user's home rather than absolute, so the link still
     # resolves if the home directory is moved or mounted elsewhere. The number
-    # of '..' steps is derived from how deep the link sits, so adding a link at
-    # a different depth to AW_AGENT_SKILL_LINKS cannot silently produce a
-    # dangling symlink.
+    # of '..' steps is derived from how deep the link sits, because these are
+    # not all the same depth - .pi/agent/skills is three - and a hardcoded
+    # '../../' would produce a dangling link that nothing notices until an
+    # agent quietly fails to find the skill.
     up="../"
     rest="$link"
     while [ "$rest" != "${rest#*/}" ]; do
       rest="${rest#*/}"
       up="../$up"
     done
-    ln -sfn "$up$AW_AGENT_SKILL_DIR_REL/archwright" "$home/$link/archwright" \
+
+    # A real directory here belongs to the user - an agent may have put its own
+    # skill in it. ln -sfn would descend INTO it and create a nested link.
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      aw_log warn "  $link/archwright already exists and is not a link - left alone"
+      continue
+    fi
+    ln -sfn "$up$AW_AGENT_SKILL_DIR_REL/archwright" "$target" \
       || aw_die "could not link the shared skill into $link"
-    [ -f "$home/$link/archwright/SKILL.md" ] \
+    [ -f "$target/SKILL.md" ] \
       || aw_die "the shared skill link in $link does not resolve"
   done
+
+  # The window a reboot would otherwise leave open. See
+  # config/tmpfiles/archwright-sudo-window.conf for why this is not optional.
+  aw_log info "installing the sudo-window boot cleanup"
+  install -d -m 0755 /mnt/usr/lib/tmpfiles.d
+  install -m 0644 "$AW_ROOT/config/tmpfiles/archwright-sudo-window.conf" \
+    /mnt/usr/lib/tmpfiles.d/archwright-sudo-window.conf \
+    || aw_die "could not install the sudo-window boot cleanup"
 
   aw_log info "installing the login-shell environment"
   install -d -m 0755 /mnt/etc/profile.d
