@@ -712,7 +712,6 @@ package file lists rather than guessed. **Trigger:** first gate run.
 |---|---|
 | **Graphics drivers** | The VM uses virtio-gpu. `mesa` covers Intel and AMD; **NVIDIA machines will not reach a session** until the hardware milestone adds driver selection. The base system will still boot |
 | **Only one monitor, one mode** | `monitor = , preferred, auto, 1` is untested against multiple outputs, mixed DPI or fractional scaling |
-| **No lock screen** | `Super + Shift + E` exits the session; there is nothing between an unattended machine and the greeter until milestone 3 |
 
 ### L28 — `virtio-vga` instead of `-vga none -device virtio-gpu-pci`
 **Supersedes the device choice in L22.** L22 removed the VGA device to get down
@@ -758,7 +757,7 @@ an optimisation must not turn into a failed test.
 Things decided to be worth doing, not yet scheduled into a milestone. Distinct
 from "known gaps", which are things currently missing or wrong.
 
-## P1 — Resume an interrupted install (real hardware)
+## P1 — Resume an interrupted install (real hardware) — **DONE, see L34**
 
 **Why it matters.** A real install is 20–40 minutes, mostly downloads. If it
 fails at minute 35 — flaky wifi, a mirror timing out, a laptop lid closing —
@@ -787,3 +786,76 @@ re-downloading and fix only the phase skipping.
 
 **Flagged by the author as important**, and it is: it is the difference between
 a bad network costing five minutes and costing the whole install.
+
+## 2026-09-07 — milestone 3
+
+### L30 — `fuzzel` as the launcher, not `walker`
+D3 named "walker/wofi". **`walker` is not in Arch's official repositories** —
+it is AUR-only, and building AUR packages at install time is exactly what D2
+removed. Between the official alternatives `fuzzel` is Wayland-native, actively
+maintained, and by the same author as `foot`, which Archwright already ships.
+A unit test asserts `walker` never reappears in the manifest.
+**Trigger:** package availability checked before planning.
+
+### L31 — Upstream units get a drop-in, not an edit — and `.wants` is not enough
+waybar, mako, hypridle and hyprpolkitagent ship their own systemd user units.
+Those are package-owned and must never be edited, so they are symlinked into
+`archwright-shell.target.wants/`.
+
+**That alone made the boundary half-real, and the gate caught it.** A `.wants`
+symlink is a **start** dependency only: stopping the target did not stop
+waybar, mako or hypridle — only `archwright-swaybg.service` stopped, because it
+declares `PartOf=`. So D3's claim that the furniture layer can be replaced as a
+unit was true for starting and false for stopping.
+
+`PartOf=` has to be declared *by* the unit, so it goes in a drop-in under
+`/etc/systemd/user/<unit>.d/` — administrator territory, survives package
+updates, upstream untouched.
+
+This is precisely why the gate tests stop *and* start rather than asserting the
+claim in prose: checking only "the target is active and the components are
+running" would have passed and shipped a broken boundary. It also unmasked the
+restore assertion, which had been passing only because nothing ever stopped.
+**Trigger:** first milestone 3 gate run.
+
+### L32 — Shell keybinds live in their own sourced file
+If `hyprland.conf` named `fuzzel` and `hyprlock` directly, the compositor config
+would be coupled to the shell and D3's boundary would be a fiction. It now
+carries a single `source = ~/.config/hypr/shell.conf`, and that file holds every
+shell-layer binding plus the target autostart. Replacing the furniture layer
+means replacing one config file and one target.
+**Trigger:** on the fly, while writing the plan.
+
+### L33 — A passing gate archives a known-good disk image
+`VMRUN` is wiped at the start of every run, and `tools/boot-installed.sh`
+pointed straight at it — so starting a test destroyed the very image you wanted
+to boot. That happened once and cost a confusing debugging session in which the
+symptom (a half-installed disk) looked nothing like the cause.
+
+A passing gate now copies the disk and firmware vars to
+`$ARCHWRIGHT_CACHE/last-good/`, and the viewer boots that by default. It also
+refuses with a clear message when a QEMU process is holding the image, rather
+than surfacing QEMU's lock error several lines deep.
+**Trigger:** the author's `boot-installed.sh` run failed for reasons entirely of
+my own making.
+
+### L34 — P1 implemented: `--resume` (planned work now done)
+Phase completion is recorded on the **ESP** rather than `/run`, because `/run`
+is tmpfs and dies at exactly the moment the state matters — a reboot.
+
+`--resume` finds the ESP and the LUKS container **by label and filesystem type,
+never by partition number** (the same rule as `lib/partition.sh`), then refuses
+unless it finds Archwright's own state file on the ESP. It mounts the ESP
+read-only to check, so a disk that turns out to belong to somebody else is left
+completely untouched.
+
+Preflight had to become resume-aware in two places: it no longer rejects the
+mounted partitions that resume itself just mounted, and it does not demand the
+word `ERASE` for an operation that erases nothing — training people to type
+ERASE without reading is its own hazard.
+
+Verified by `test/vm-install.sh --phase resume`, which installs through `base`,
+tears the mounts down and discards `/run` to simulate a reboot, resumes, and
+asserts both that the finished phases were skipped and that a disk with no
+Archwright state is refused.
+**Trigger:** flagged by the author as important; recorded as P1, now closed.

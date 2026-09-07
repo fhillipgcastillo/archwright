@@ -9,19 +9,28 @@ it by hand, and this **installer** that does it for you.
 
 ---
 
-## ⚠️ Status: milestone 2 of 7
+## ⚠️ Status: milestone 3 of 7
 
 **What works today:** a bootable, fully encrypted, snapshot-capable Arch system
-that starts a **Hyprland desktop**. UEFI, LUKS2, btrfs subvolumes, Limine with
-per-snapshot boot entries, snapper, a deny-all firewall — and a graphical
-session with a terminal, audio and desktop portals.
+with a **usable Hyprland desktop** — status bar, notifications, app launcher,
+wallpaper, idle handling and a lock screen. UEFI, LUKS2, btrfs subvolumes,
+Limine with per-snapshot boot entries, snapper, a deny-all firewall, audio and
+desktop portals.
 
-**What does not exist yet:** a status bar, notifications, an app launcher or a
-lock screen (milestone 3); applications beyond a terminal (milestone 4); the AI
-tooling (milestone 5).
+**What does not exist yet:** applications beyond a terminal (milestone 4); the
+AI tooling (milestone 5); theming and hardware driver selection (milestone 6).
 
-Once you are in the session: `Super + Return` opens a terminal, `Super + Q`
-closes a window, `Super + 1..4` switches workspace, `Super + Shift + E` exits.
+| Key | Does |
+|---|---|
+| `Super + Return` | Terminal |
+| `Super + Space` | App launcher |
+| `Super + Ctrl + L` | Lock the screen |
+| `Super + Q` | Close window |
+| `Super + 1`…`4` | Switch workspace |
+| `Super + ,` | Dismiss a notification |
+| `Super + Shift + E` | Exit the session |
+
+The screen locks itself after five minutes idle.
 
 Verified end-to-end in QEMU on every commit. See "Honest limitations" below for
 what that does and does not prove about your hardware.
@@ -158,7 +167,20 @@ It will show you the target disk and require you to type `ERASE` to continue.
 Expect **20–40 minutes**, mostly package downloads.
 
 Add `--yes` to skip the confirmation, or
-`--phase <preflight|disk|base|boot|session>` to run a single stage.
+`--phase <preflight|disk|base|boot|session|shell>` to run a single stage.
+
+### If the install is interrupted
+
+A dropped connection or a closed lid part-way through does **not** mean starting
+again. Archwright records which phases finished on the EFI partition, so:
+
+```sh
+bash install.sh --answers /root/answers.conf --resume
+```
+
+reopens the encrypted container, remounts everything, and continues from where
+it stopped rather than re-downloading hundreds of megabytes. It refuses to touch
+a disk it cannot positively identify as an Archwright install in progress.
 
 ## 8. Reboot
 
