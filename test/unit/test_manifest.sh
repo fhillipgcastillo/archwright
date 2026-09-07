@@ -148,4 +148,33 @@ if aw_manifest_group "$gtmp/e.packages" gaming | grep -q 'Requires'; then
 else _pass; fi
 rm -rf "$gtmp"
 
+# --- the shipped extras manifest (milestone 4) ------------------------------
+extras="$ROOT/manifest/extras.packages"
+got="$(aw_manifest_groups "$extras" | tr '
+' ',')"
+assert_eq "$got" "office,media,containers,browsers,ai-local,gaming,"   "extras groups are the documented set"
+assert_eq "$(aw_manifest_group_requires "$extras" gaming)" "multilib"   "gaming declares its multilib requirement"
+for g in office media containers browsers ai-local; do
+  if [ -n "$(aw_manifest_group_requires "$extras" "$g")" ]; then
+    _fail "extras" "group $g should need no extra repository"
+  else _pass; fi
+done
+# Every group must actually contain packages - an empty group would install
+# nothing while appearing to succeed.
+for g in $(aw_manifest_groups "$extras"); do
+  if [ -n "$(aw_manifest_group "$extras" "$g")" ]; then _pass
+  else _fail "extras" "group $g is empty"; fi
+done
+
+# Core gains the applications, and vim is gone in favour of neovim.
+for required in firefox neovim nautilus imv mpv evince xdg-utils                 eza bat fd fzf lazygit btop; do
+  if printf '%s
+' "$pkgs" | grep -qx "$required"; then _pass
+  else _fail "core.packages" "application missing: $required"; fi
+done
+if printf '%s
+' "$pkgs" | grep -qx "vim"; then
+  _fail "core.packages" "vim ships alongside neovim - pick one (spec section 3)"
+else _pass; fi
+
 finish_tests

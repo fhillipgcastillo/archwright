@@ -42,7 +42,6 @@ man-db
 nano
 ripgrep
 sudo
-vim
 
 ## Group: hardware
 sof-firmware
@@ -87,3 +86,26 @@ hyprpolkitagent
 wl-clipboard
 libnotify
 brightnessctl
+
+## Group: applications
+firefox
+neovim
+nautilus
+gvfs
+imv
+mpv
+evince
+xdg-utils
+
+## Group: cli-tools
+eza
+bat
+fd
+fzf
+zoxide
+lazygit
+btop
+fastfetch
+tldr
+jq
+unzip

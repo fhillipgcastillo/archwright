@@ -1,0 +1,31 @@
+# Opt-in application groups. Selected by name in the answer file:
+#
+#   EXTRAS=office,containers
+#
+# Nothing here is installed unless asked for. A '## Requires:' line states that
+# a group needs something beyond Arch's default repositories, and the installer
+# enables it only when that group is chosen.
+
+## Group: office
+libreoffice-fresh
+
+## Group: media
+obs-studio
+kdenlive
+gimp
+
+## Group: containers
+docker
+docker-compose
+lazydocker
+
+## Group: browsers
+chromium
+
+## Group: ai-local
+ollama
+
+## Group: gaming
+## Requires: multilib
+steam
+lutris
