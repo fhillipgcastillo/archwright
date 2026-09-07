@@ -106,4 +106,18 @@ for required in hyprland uwsm greetd greetd-tuigreet xdg-desktop-portal-hyprland
   else _fail "core.packages" "session package missing: $required"; fi
 done
 
+# Milestone 3: the shell layer.
+for required in waybar mako fuzzel swaybg hypridle hyprlock hyprpolkitagent                 wl-clipboard libnotify; do
+  if printf '%s
+' "$pkgs" | grep -qx "$required"; then _pass
+  else _fail "core.packages" "shell package missing: $required"; fi
+done
+
+# walker is AUR-only and must never appear here: building AUR packages at
+# install time is what D2 removed.
+if printf '%s
+' "$pkgs" | grep -qx "walker"; then
+  _fail "core.packages" "walker is AUR-only and cannot be pacstrapped"
+else _pass; fi
+
 finish_tests

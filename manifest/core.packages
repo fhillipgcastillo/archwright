@@ -70,3 +70,17 @@ foot
 
 ## Group: fonts
 ttf-jetbrains-mono-nerd
+
+## Group: shell
+waybar
+mako
+fuzzel
+swaybg
+hypridle
+hyprlock
+hyprpolkitagent
+
+## Group: shell-support
+wl-clipboard
+libnotify
+brightnessctl
