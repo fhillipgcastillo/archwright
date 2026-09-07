@@ -128,4 +128,24 @@ if printf '%s
   _fail "core.packages" "walker is AUR-only and cannot be pacstrapped"
 else _pass; fi
 
+# --- group parsing (milestone 4) --------------------------------------------
+gtmp="$(mktemp -d)"
+printf '%s
+'   '# a comment'   '## Group: office'   'libreoffice-fresh'   ''   '## Group: gaming'   '## Requires: multilib'   'steam'   'lutris' > "$gtmp/e.packages"
+
+assert_eq "$(aw_manifest_groups "$gtmp/e.packages" | tr '
+' ',')" "office,gaming,"   "groups are listed in file order"
+assert_eq "$(aw_manifest_group "$gtmp/e.packages" office | tr '
+' ',')" "libreoffice-fresh,"   "a group yields only its own packages"
+assert_eq "$(aw_manifest_group "$gtmp/e.packages" gaming | tr '
+' ',')" "steam,lutris,"   "a later group is bounded by the next header"
+assert_eq "$(aw_manifest_group_requires "$gtmp/e.packages" gaming)" "multilib"   "a group's requirements are read"
+assert_eq "$(aw_manifest_group_requires "$gtmp/e.packages" office)" ""   "a group with no requirements yields nothing"
+assert_eq "$(aw_manifest_group "$gtmp/e.packages" nosuch)" ""   "an unknown group yields nothing"
+# A Requires: directive must never be mistaken for a package name.
+if aw_manifest_group "$gtmp/e.packages" gaming | grep -q 'Requires'; then
+  _fail "group parsing" "a Requires directive leaked in as a package"
+else _pass; fi
+rm -rf "$gtmp"
+
 finish_tests

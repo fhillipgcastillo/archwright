@@ -14,3 +14,54 @@ aw_manifest_subvolumes() {
   [ -f "$file" ] || aw_die "manifest not found: $file"
   grep -v '^[[:space:]]*#' "$file" | grep -v '^[[:space:]]*$' || true
 }
+
+# Group-aware readers for manifest/extras.packages.
+#
+# The file is grouped by job:
+#
+#   ## Group: gaming
+#   ## Requires: multilib
+#   steam
+#
+# A '## Requires:' directive states that the group needs something beyond the
+# default repositories. It lives in the manifest rather than in lib/ so package
+# facts stay with the package data - the same rule that keeps package names out
+# of lib/.
+
+aw_manifest_groups() {
+  local file="$1"
+  [ -f "$file" ] || aw_die "manifest not found: $file"
+  sed -n 's/^##[[:space:]]*Group:[[:space:]]*//p' "$file"
+}
+
+aw_manifest_group() {
+  local file="$1" want="$2"
+  [ -f "$file" ] || aw_die "manifest not found: $file"
+  awk -v want="$want" '
+    /^##[[:space:]]*Group:/ {
+      sub(/^##[[:space:]]*Group:[[:space:]]*/, "")
+      current = $0
+      next
+    }
+    /^##[[:space:]]*Requires:/ { next }
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    current == want { print }
+  ' "$file"
+}
+
+aw_manifest_group_requires() {
+  local file="$1" want="$2"
+  [ -f "$file" ] || aw_die "manifest not found: $file"
+  awk -v want="$want" '
+    /^##[[:space:]]*Group:/ {
+      sub(/^##[[:space:]]*Group:[[:space:]]*/, "")
+      current = $0
+      next
+    }
+    current == want && /^##[[:space:]]*Requires:/ {
+      sub(/^##[[:space:]]*Requires:[[:space:]]*/, "")
+      print
+    }
+  ' "$file"
+}
