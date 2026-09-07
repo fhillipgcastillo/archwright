@@ -2,7 +2,46 @@
 #
 # Regenerated on every theme change. foot.ini includes this and is yours.
 # foot takes colours as bare hex with no '#'.
-[colors]
+#
+# THE SECTION NAME IS [colors-dark], NOT [colors]
+#
+# foot splits its palette into colors-dark and colors-light, switchable at
+# runtime with a keybinding or SIGUSR1/SIGUSR2. A plain [colors] section is
+# rejected outright: "invalid section name: colors".
+#
+# Both sections carry the same values here on purpose. An Archwright palette is
+# one scheme, not a light/dark pair, so whichever theme foot starts in - and
+# whichever way the user toggles it - the colours are the ones they chose. The
+# alternative is branching the template on the palette's own lightness and
+# setting initial-color-theme to match, which is more machinery for a toggle
+# that has nothing to toggle between.
+
+[colors-dark]
+background=@base_hex@
+foreground=@text_hex@
+selection-background=@surface1_hex@
+selection-foreground=@text_hex@
+urls=@alt2_hex@
+
+regular0=@surface1_hex@
+regular1=@alt4_hex@
+regular2=@alt3_hex@
+regular3=@alt1_hex@
+regular4=@alt2_hex@
+regular5=@accent_hex@
+regular6=@alt2_hex@
+regular7=@subtext_hex@
+
+bright0=@overlay_hex@
+bright1=@alt4_hex@
+bright2=@alt3_hex@
+bright3=@alt1_hex@
+bright4=@alt2_hex@
+bright5=@accent_hex@
+bright6=@alt2_hex@
+bright7=@text_hex@
+
+[colors-light]
 background=@base_hex@
 foreground=@text_hex@
 selection-background=@surface1_hex@
