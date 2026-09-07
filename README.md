@@ -287,8 +287,9 @@ line people usually end up with, and the difference is in the failure cases:
 - The revert is scheduled on **two clocks at once** — a countdown and a
   wall-clock deadline, whichever comes first. A countdown alone stops while the
   machine is suspended; a wall-clock deadline alone can be missed entirely if
-  the system clock is stepped or the timezone disagrees. Each covers the
-  other's blind spot.
+  the system clock is stepped or the timezone disagrees. Each covers a case the
+  other cannot. (Lose the wall-clock trigger *and* then suspend, and the window
+  still closes — just late, and at the next boot regardless.)
 - It is removed **at every boot** regardless, because a reboot destroys the
   timer but not the file.
 

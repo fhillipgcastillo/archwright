@@ -121,6 +121,47 @@ aw_agent_write_stubs "$tmp/edge.tsv" "$tmp/edgeout"
 if bash -n "$tmp/edgeout/ok" 2>/dev/null; then _pass
 else _fail "stubs" "a stub built from legal punctuation is not valid bash"; fi
 
+# --- the spec validator, including the shapes mise documents -----------------
+for good in 'npm:@openai/codex@0.20.0' 'npm:typescript@5.4.5' 'node@22' \
+            'go:github.com/owner/tool@latest' 'npm:opencode-ai' 'npm:@scope/pkg'; do
+  if aw_agent_valid_spec "$good"; then _pass
+  else _fail "spec" "a documented mise spec was rejected: [$good]"; fi
+done
+# A bare '..' and one straight after the backend both slipped past the first
+# version of this check, which needed a slash next to the dots.
+for bad in '..' 'npm:..' 'npm:../x' '../x' 'a/../b' 'a/..' 'npm:@scope/a/../../../etc'; do
+  if aw_agent_valid_spec "$bad"; then
+    _fail "spec" "a traversal was accepted: [$bad]"
+  else _pass; fi
+done
+
+# The CLI ships standalone onto the installed system and cannot source lib/, so
+# it carries its own copy of these rules. "Kept identical" was a comment with
+# nothing enforcing it; this compares the two bodies directly, so the copies
+# cannot drift in silence.
+# Handles both shapes these validators come in: a one-liner ending in '}' on
+# the same line, and a multi-line body closed by a bare '}'. A sed range would
+# run straight past a one-liner to the next function's closing brace and
+# compare the wrong things - which it did, and the failure looked like drift.
+validator_body() {
+  awk -v fn="$2" '
+    index($0, fn "()") == 1 { inside = 1 }
+    inside { print }
+    inside && /\}[[:space:]]*$/ { exit }
+  ' "$1" \
+    | sed "s/^$2()//" \
+    | grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$' | tr -d ' \t'
+}
+assert_eq "$(validator_body "$ROOT/lib/agents.sh" aw_agent_valid_spec)" \
+          "$(validator_body "$ROOT/bin/archwright" is_mise_spec)" \
+  "the two spec validators have not drifted apart"
+assert_eq "$(validator_body "$ROOT/lib/agents.sh" aw_agent_valid_bin)" \
+          "$(validator_body "$ROOT/bin/archwright" is_bin_name)" \
+  "the two executable-name validators have not drifted apart"
+assert_eq "$(validator_body "$ROOT/lib/agents.sh" aw_agent_valid_name)" \
+          "$(validator_body "$ROOT/bin/archwright" is_command_name)" \
+  "the two command-name validators have not drifted apart"
+
 # --- the stub tree is OURS, so a removed row must disappear from it ----------
 printf '%s\n' 'one	npm:a	a' 'two	npm:b	b' > "$tmp/two.tsv"
 printf '%s\n' 'one	npm:a	a' > "$tmp/one.tsv"

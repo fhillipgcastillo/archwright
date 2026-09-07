@@ -14,15 +14,17 @@ AW_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/archwright"
 AW_BIN_DIR="$HOME/.local/bin"
 AW_WORK_DIR="$HOME/Work"
 AW_FALLBACK_AGENT="claude"
-# Overridable so the path is not repeated in three places, and so the unit
-# tests can prove a rejected sudo-window writes nothing - which they could not
-# while this pointed at a directory they had no business touching.
+# Not overridable, deliberately. An ARCHWRIGHT_SUDOERS_D override was added
+# here so a unit test could prove a rejected sudo-window writes nothing. It
+# could not: sudo strips the variable under env_reset, so the re-exec never saw
+# it and the sandbox path was unreachable in principle - and the assertion that
+# justified it created its own empty directory and then checked it was empty.
 #
-# Note that a window opened under an override is NOT covered by the boot
-# cleanup, which names /etc/sudoers.d/99-archwright-sudo-window literally. It
-# takes root to use either, so this grants nothing new; it is just not a
-# supported way to run the feature.
-AW_SUDOERS_D="${ARCHWRIGHT_SUDOERS_D:-/etc/sudoers.d}"
+# So it was an environment hook in the one script on the installed system that
+# writes to /etc/sudoers.d, added to satisfy a check that could not fail. The
+# grant path is covered where it can actually be covered: the VM gate, against
+# a real root and a real sudoers file.
+AW_SUDOERS_D=/etc/sudoers.d
 AW_SUDO_DROPIN="$AW_SUDOERS_D/99-archwright-sudo-window"
 AW_SUDO_UNIT="archwright-sudo-window-revert"
 AW_SUDO_MAX_MINUTES=240
@@ -64,7 +66,10 @@ is_mise_spec() {
   [[ ${1-} =~ ^([a-z][a-z0-9]*:)?@?[A-Za-z0-9._/-]+(@[A-Za-z0-9._-]+)?$ ]] || return 1
   # Inert - the spec only ever reaches mise inside quotes - but a field this
   # file calls a security boundary should not carry a traversal.
-  case "$1" in */../*|../*|*/..) return 1 ;; esac
+  #
+  # Anchored on components. The obvious `*/../*|../*|*/..` needs a slash beside
+  # the dots, so a bare `..` and `npm:../x` both walked straight through it.
+  case "/${1#*:}/" in */../*) return 1 ;; esac
   return 0
 }
 
@@ -165,11 +170,18 @@ cmd_mise_install() {
   is_mise_spec "$spec" \
     || usage_error "mise-install: [$spec] is not a usable package spec (expected something like npm:@scope/tool)"
 
-  # Infer the command from the tail of the spec when it is not given, which is
-  # right for npm:tool and for npm:@scope/tool alike.
+  # Infer the command from the tail of the spec when it is not given: drop the
+  # scope, then the backend, then the version pin. Right for npm:tool,
+  # npm:@scope/tool, node@22 and npm:@openai/codex@0.20.0 alike.
+  #
+  # The pin strip is not decoration. Version pins were legalised in the
+  # validator without it, so every pinned spec passed validation and was then
+  # rejected here as "not a usable command name" - the feature accepted the
+  # input and still refused to do the work.
   if [ -z "$name" ]; then
     name="${spec##*/}"
     name="${name##*:}"
+    name="${name%@*}"
   fi
   is_command_name "$name" \
     || usage_error "mise-install: [$name] is not a usable command name; pass one explicitly"
@@ -299,6 +311,15 @@ EOF
   }
   trap '_sudo_window_abort; exit 1' INT TERM HUP
 
+  # Revoke BEFORE cancelling the old timer, not after. The trap covers signals,
+  # but nothing covers SIGKILL or a hang, and between stopping the old timer and
+  # arming the new one there are three D-Bus round trips - hundreds of
+  # milliseconds on a loaded machine. Dying in that gap would leave the old
+  # grant on disk with its revert already cancelled. Removing the file first
+  # makes that gap empty: there is nothing to leak, and the success path
+  # re-creates the grant a few lines below.
+  rm -f "$AW_SUDO_DROPIN"
+
   # Clear any previous window, unit and all. Stopping the timer alone leaves a
   # failed transient service behind, and systemd refuses to create a unit whose
   # name already exists - which would wedge sudo-window until someone ran
@@ -343,7 +364,10 @@ EOF
   # loaded machine it could have fired against nothing, leaving a grant with
   # no pending revert.
   if ! systemctl is-active --quiet "$AW_SUDO_UNIT.timer"; then
-    rm -f "$AW_SUDO_DROPIN"
+    # The common abort, not a bare rm: if is-active failed for some reason
+    # other than "already elapsed", the timer is still running and wants
+    # stopping too. Every exit path past the trap goes through one function.
+    _sudo_window_abort
     die "the revert timer is not pending - nothing is granted"
   fi
   trap - INT TERM HUP

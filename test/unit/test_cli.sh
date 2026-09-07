@@ -26,15 +26,7 @@ CLI="$ROOT/bin/archwright"
 # "launching a missing agent fails" case quietly LAUNCHED CLAUDE instead of
 # testing anything. The CLI looks in ~/.local/bin first and falls back to PATH,
 # so both halves need a PATH we control.
-#
-# ARCHWRIGHT_SUDOERS_D points the sudoers path at the sandbox. Without it the
-# "a rejected sudo-window left nothing behind" assertion searched a directory
-# the CLI never writes to, and so could not fail for any implementation -
-# including one that wrote to the real /etc/sudoers.d on every rejected input.
-aw_cli() {
-  HOME="$tmp/home" PATH="/usr/bin:/bin" \
-  ARCHWRIGHT_SUDOERS_D="$tmp/sudoers.d" bash "$CLI" "$@"
-}
+aw_cli() { HOME="$tmp/home" PATH="/usr/bin:/bin" bash "$CLI" "$@"; }
 
 status_of() { aw_cli "$@" >/dev/null 2>&1; printf '%s' "$?"; }
 
@@ -132,10 +124,27 @@ for good in 'npm:@openai/codex@0.20.0' 'npm:typescript@5.4.5' 'node@22' \
     "mise-install accepts the spec [$good]"
 done
 
+# WITHOUT an explicit name, which is the half that was broken. The validator
+# accepted every pinned spec above and the name inference then rejected it as
+# "not a usable command name" - and the loop above hid that by always passing a
+# name. A test that steps around the broken half of a feature is not a test.
+assert_eq "$(status_of mise-install 'npm:@openai/codex@0.20.0')" "0" \
+  "a pinned scoped spec infers its command name"
+if [ -x "$tmp/home/.local/bin/codex" ]; then _pass
+else _fail "cli" "the inferred name kept the version pin"; fi
+assert_eq "$(status_of mise-install 'node@22')" "0" \
+  "a backendless pinned spec infers its command name"
+if [ -x "$tmp/home/.local/bin/node" ]; then _pass
+else _fail "cli" "node@22 did not infer the name 'node'"; fi
+
 # A traversal in a spec is inert - it only ever reaches mise inside quotes -
-# but a field the source calls a security boundary should not accept one.
-assert_eq "$(status_of mise-install 'npm:@scope/a/../../../etc' tool)" "2" \
-  "mise-install rejects a spec containing a path traversal"
+# but a field the source calls a security boundary should not accept one. The
+# first version of this check needed a slash beside the dots, so a bare '..'
+# and 'npm:../x' both walked through it.
+for bad in 'npm:@scope/a/../../../etc' '..' 'npm:..' 'npm:../x' '../x' 'a/../b'; do
+  assert_eq "$(status_of mise-install "$bad" tool)" "2" \
+    "mise-install rejects the traversal [$bad]"
+done
 
 # Whatever survives validation must PARSE. Greping the generated stub for a
 # substring would pass on a file that is not valid bash - which is exactly how
@@ -159,11 +168,16 @@ for bad in "abc" "0" "-5" "1.5" "241" "15m" "" "1 2"; do
   assert_eq "$(status_of sudo-window "$bad")" "2" "sudo-window rejects [$bad]"
 done
 
-# It must not have created anything in the sudoers directory while refusing.
-# The directory is the sandboxed one, so this can actually fail.
-mkdir -p "$tmp/sudoers.d"
-if [ -z "$(find "$tmp/sudoers.d" -mindepth 1)" ]; then _pass
-else _fail "cli" "a rejected sudo-window wrote into the sudoers directory"; fi
+# There is deliberately NO assertion here that the sudoers directory stayed
+# empty. Two attempts at one were both worthless: the first searched $HOME,
+# which the CLI never writes to; the second created its own empty directory and
+# then checked it was empty. Making it real would need an override of the
+# sudoers path inside the script - and sudo strips that under env_reset, so the
+# sandboxed path is unreachable from a non-root test anyway.
+#
+# What these tests can honestly prove is that a bad argument exits 2 before the
+# root re-exec, which is what the loop above does. The write path is gated in
+# the VM, against a real root and a real sudoers file.
 
 # --- agent -------------------------------------------------------------------
 # With no stub and no such command installed, launching must fail with a

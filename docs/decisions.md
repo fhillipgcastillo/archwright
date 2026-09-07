@@ -1235,3 +1235,61 @@ suite that talks to a real registry is aimed at the claim with the weakest
 evidence behind it.
 **Trigger:** a reviewer declining to accept a same-file assertion as
 verification.
+
+### L61 — A test-only hook was added to root-executing code for a check that could not fail
+`ARCHWRIGHT_SUDOERS_D` was introduced so a unit test could prove a rejected
+`sudo-window` writes nothing. It could not, twice over: the assertion created
+its own empty directory and then checked it was empty, and `sudo` strips the
+variable under `env_reset`, so the sandboxed path was unreachable from a
+non-root test in the first place. What remained was an environment override in
+the one script on the installed system that writes to `/etc/sudoers.d`.
+
+Both are gone. What a unit test can honestly prove there is that a bad argument
+exits 2 before the root re-exec; the write path is gated in the VM, against a
+real root and a real sudoers file. Where a check cannot be made real, the honest
+move is to delete it and say what covers the gap — not to reshape the product
+until the check passes.
+**Trigger:** a reviewer asking what the assertion would do against a broken
+implementation, and finding the answer was "pass".
+
+### L62 — The test was written around the broken half of the feature
+Legalising version pins (L58) fixed the validator and not the name inference, so
+`mise-install npm:@openai/codex@0.20.0` passed validation and was then rejected
+two lines later as "not a usable command name". The new test passed an explicit
+name to every pinned case, stepping around exactly the half that was broken, and
+L58 recorded "all four documented shapes are now test data" — true of the
+validator, false of the command.
+
+A test that supplies the argument which avoids the bug is not coverage. The
+inference path is now exercised without a name, and asserts the resulting file.
+**Trigger:** a reviewer running the user-facing command rather than the
+predicate under it.
+
+### L63 — A predicate written for the obvious shape missed the simple ones
+The traversal guard was `case */../*|../*|*/..`, which needs a slash beside the
+dots. A bare `..` and `npm:../x` both walked through, and the one test case
+happened to be the interior form that was caught. Anchoring the value between
+slashes before matching — `case "/${1#*:}/" in */../*)` — covers all of them.
+Inert either way, since the spec only ever reaches mise inside quotes, but the
+source called it a security boundary and it did not hold.
+**Trigger:** a reviewer enumerating the shapes rather than trusting the pattern.
+
+### L64 — "Kept identical" is a comment, not an oracle
+`bin/archwright` ships standalone onto the installed system and cannot source
+`lib/`, so it carries its own copy of the three validators. A comment said they
+were kept character-for-character identical and nothing enforced it — and the
+new spec coverage lived entirely in the CLI's test file, so `lib/agents.sh`'s
+copy never saw a version pin or a traversal at all.
+
+A test now extracts and compares both bodies. Mutation-checked: widening one
+copy's character class by a single character fails the suite, and nothing else
+in it notices.
+**Trigger:** a reviewer asking what enforces a claim in a comment.
+
+## Known gaps carried out of milestone 5 (added after review)
+
+| Gap | Why it is acceptable for now |
+|---|---|
+| Only one of five agent packages is resolved against a real registry | The gate first-runs `pi`, the row with the weakest evidence behind it. The other four are guarded by same-file assertions, which L60 correctly says are not oracles: a package that was unpublished or renamed its bin would still ship green. Resolving all five would cost one slow gate run and is worth doing when the gate is next touched. |
+| The stepped-clock and suspend paths of the sudo window are argued, not executed | The gate waits out a one-minute window, which exercises the monotonic trigger for real. Nothing in the harness steps the clock or suspends the VM. The dual-trigger design is reasoned from systemd's elapse semantics. |
+| `SIGKILL` between revoking and re-granting | The grant is now removed *before* the old timer is cancelled, so the uncatchable gap contains no grant. A `SIGKILL` in the remaining window loses the *new* grant, never leaks the old one. |

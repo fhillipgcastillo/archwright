@@ -65,7 +65,9 @@ aw_agent_valid_name() { [[ ${1-} =~ ^[a-z][a-z0-9-]*$ ]]; }
 # system and cannot source lib/.
 aw_agent_valid_spec() {
   [[ ${1-} =~ ^([a-z][a-z0-9]*:)?@?[A-Za-z0-9._/-]+(@[A-Za-z0-9._-]+)?$ ]] || return 1
-  case "$1" in */../*|../*|*/..) return 1 ;; esac
+  # Anchored on components. The obvious `*/../*|../*|*/..` needs a slash beside
+  # the dots, so a bare `..` and `npm:../x` both walked straight through it.
+  case "/${1#*:}/" in */../*) return 1 ;; esac
   return 0
 }
 

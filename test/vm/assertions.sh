@@ -385,7 +385,7 @@ check "a window left by a reboot is removed at boot" boot_cleanup_removes_it
 # on this rule if the '!' were ever dropped.
 periodic_clean_leaves_it() {
   write_window
-  systemd-tmpfiles --clean >/dev/null 2>&1
+  systemd-tmpfiles --clean --prefix=/etc/sudoers.d >/dev/null 2>&1
   systemd-tmpfiles --remove --prefix=/etc/sudoers.d >/dev/null 2>&1
   local still=0
   [ -f "$SUDO_DROPIN" ] && still=1
