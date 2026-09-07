@@ -486,7 +486,9 @@ check "the default agent was restored" default_agent_is claude
 npm_declares_bin() {
   local spec="$1" want="$2" pkg
   case "$spec" in npm:*) pkg="${spec#npm:}" ;; *) return 0 ;; esac
-  aw_user_run npm view "$pkg" bin --json 2>/dev/null | grep -q "\"$want\""
+  # npm view failing IS a failure of this assertion, so the pipefail
+  # behaviour is what we want here.
+  aw_user_run npm view "$pkg" bin --json 2>/dev/null | grep -q "\"$want\""  # lint-ok: pipefail
 }
 for stub in /usr/share/archwright/agent-stubs/*; do
   [ -f "$stub" ] || continue
@@ -552,12 +554,14 @@ check_v "fuzzel accepts the themed config" \
 # The compositor is the real oracle: ask the running Hyprland what colour its
 # active border is, rather than trusting that the file was read.
 hypr_border_is_accent() {
-  hyprctl_user getoption general:col.active_border | grep -qi "cba6f7"
+  # hyprctl failing IS a failure of this assertion.
+  hyprctl_user getoption general:col.active_border | grep -qi "cba6f7"  # lint-ok: pipefail
 }
 check "hyprland is using the palette's accent" hypr_border_is_accent
 
 hypr_rounding_applied() {
-  hyprctl_user getoption decoration:rounding | grep -qE "int: 10"
+  # hyprctl failing IS a failure of this assertion.
+  hyprctl_user getoption decoration:rounding | grep -qE "int: 10"  # lint-ok: pipefail
 }
 check "the rounded-corner look applied" hypr_rounding_applied
 
