@@ -32,7 +32,7 @@ assert_eq "$(printf '%s' "$declared" | tr ' ' '\n' | tr -d '\r')" \
 # runner calls. run_phase composes the name as aw_<phase>, so a phase whose
 # file defines something else fails only when that phase runs.
 for phase in $declared; do
-  file="$(sed -n "s/^run_phase[[:space:]]\{1,\}$phase[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p" "$INSTALL")"
+  file="$(sed -n "s/^run_phase[[:space:]]\{1,\}${phase}[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p" "$INSTALL")"
   if [ -n "$file" ] && [ -f "$ROOT/lib/$file" ]; then _pass
   else _fail "install.sh" "phase $phase names no readable file in lib/ (got [$file])"; fi
   if grep -qE "^aw_$phase\(\)" "$ROOT/lib/$file" 2>/dev/null; then _pass
