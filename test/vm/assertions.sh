@@ -728,6 +728,92 @@ check_v "archwright hardware re-runs and finds nothing" hardware_reruns_clean
 check "re-running left no mask behind" \
   sh -c '! test -L /etc/pacman.d/hooks/90-mkinitcpio-install.hook'
 
+# --- P2: graphical answers to system tasks -----------------------------------
+
+for b in nm-applet nm-connection-editor pavucontrol blueman-manager \
+         grim slurp swappy nwg-displays file-roller gnome-text-editor \
+         gnome-calculator; do
+  check "installed: $b"             sh -c "command -v $b >/dev/null"
+done
+check "screenshot helper installed" test -x /usr/bin/archwright-screenshot
+check "the helper answers --help"   archwright-screenshot --help
+check "an unknown action exits 2" \
+  sh -c 'archwright-screenshot nonsense >/dev/null 2>&1; [ "$?" -eq 2 ]'
+
+# The extras groups must NOT be present - they were not selected.
+check "desktop-tools not installed"  sh -c '! pacman -Q gnome-disk-utility >/dev/null 2>&1'
+check "theming-gui not installed"    sh -c '! pacman -Q azote >/dev/null 2>&1'
+check "no print daemon"              sh -c '! pacman -Q cups >/dev/null 2>&1'
+
+# Handlers, resolved rather than read out of a file.
+check "text files open in the GUI editor" mime_is text/plain org.gnome.TextEditor.desktop
+check "zip opens in the archive manager"  mime_is application/zip org.gnome.FileRoller.desktop
+
+# Keybinds and bar wiring reached the user's copies.
+check "screenshot keybind seeded" \
+  grep -q "archwright-screenshot region" "$AW_HOME/.config/hypr/shell.conf"
+check "theme picker keybind seeded" \
+  grep -q "archwright theme pick" "$AW_HOME/.config/hypr/shell.conf"
+check "bar opens the network editor" \
+  grep -q "nm-connection-editor" "$AW_HOME/.config/waybar/config.jsonc"
+check "bar has a bluetooth module" \
+  grep -q '"bluetooth"' "$AW_HOME/.config/waybar/config.jsonc"
+
+# --- your own wallpaper, and the rule that a theme change respects it --------
+#
+# This is the whole point of the feature: choosing an image is a decision, and
+# Archwright stops making that decision for you once you have made it.
+check "wallpaper show works"        aw_user_run archwright wallpaper show
+wallpaper_points_at() {
+  [ "$(readlink "$AW_HOME/.local/state/archwright/wallpaper.png")" = "$1" ]
+}
+check "it starts on the theme's own" \
+  wallpaper_points_at /usr/share/archwright/wallpapers/mocha.png
+
+# A picture the user supplies, in their own home.
+runuser -u "$AW_USER" -- mkdir -p "$AW_HOME/Pictures"
+cp /usr/share/archwright/wallpapers/nord.png "$AW_HOME/Pictures/mine.png"
+chown "$AW_USER:$AW_USER" "$AW_HOME/Pictures/mine.png"
+
+check "wallpaper set accepts an image" \
+  aw_user_run archwright wallpaper set "$AW_HOME/Pictures/mine.png"
+check "the link followed it"        wallpaper_points_at "$AW_HOME/Pictures/mine.png"
+check "the choice was recorded"     test -r "$AW_HOME/.local/state/archwright/wallpaper-custom"
+check "a missing image is refused" \
+  sh -c "! runuser -u $AW_USER -- env HOME=$AW_HOME archwright wallpaper set /no/such.png >/dev/null 2>&1"
+
+# The rule under test: changing theme must NOT take the picture back.
+check "theme set still works with a custom wallpaper" \
+  aw_user_run archwright theme set gruvbox
+check "the colours changed"         grep -q "fabd2f" "$AW_HOME/.config/hypr/colors.conf"
+check "the chosen wallpaper SURVIVED a theme change" \
+  wallpaper_points_at "$AW_HOME/Pictures/mine.png"
+
+check "wallpaper reset hands it back" aw_user_run archwright wallpaper reset
+check "and the theme's own returns" \
+  wallpaper_points_at /usr/share/archwright/wallpapers/gruvbox.png
+check "the choice was forgotten"    sh -c "! test -e $AW_HOME/.local/state/archwright/wallpaper-custom"
+
+# Back to the documented default for anyone who pokes around this VM.
+aw_user_run archwright theme set mocha >/dev/null 2>&1
+check "restored to mocha"           wallpaper_points_at /usr/share/archwright/wallpapers/mocha.png
+
+# What P2 actually cost, measured rather than estimated - D18 says state the
+# trade as a number. Informational.
+p2_size() {
+  local s p
+  for p in network-manager-applet nm-connection-editor pavucontrol blueman \
+           grim slurp swappy nwg-displays file-roller gnome-text-editor \
+           gnome-calculator; do
+    s="$(pacman -Qi "$p" 2>/dev/null | awk -F': *' '/Installed Size/ {print $2}')"
+    printf '  %-26s %s\n' "$p" "${s:-not installed}"
+  done
+  printf '  total on disk now: %s\n' \
+    "$(df -h --output=used / | tail -1 | tr -d ' ')"
+}
+printf '      --- P2 package sizes (informational) ---\n'
+p2_size 2>&1 | sed 's/^/      /'
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then
