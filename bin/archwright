@@ -88,7 +88,8 @@ commands:
   agent [args...]              launch the default agent, forwarding arguments
   default agent [name]         show or set the default agent
   mise-install <spec> [name]   add a lazy launcher for any mise-installable CLI
-  theme [show|list|set <name>] show, list or change the colour theme
+  theme [show|list|set|pick]   show, list or change the colour theme
+  wallpaper [show|set|reset|pick]  use your own background image
   hardware                     re-run the hardware detection scripts
   sudo-window [minutes]        grant passwordless sudo for a while (default 15)
   version                      print the installed Archwright version
@@ -96,7 +97,8 @@ commands:
 
 examples:
   archwright default agent codex
-  archwright theme set tokyonight
+  archwright theme pick
+  archwright wallpaper set ~/Pictures/city.jpg
   archwright mise-install npm:@scope/tool tool
   archwright sudo-window 30
 EOF
@@ -285,8 +287,16 @@ cmd_theme() {
       [ "$n" -gt 0 ] || die "no colour files were written"
 
       mkdir -p "$AW_STATE_DIR"
-      ln -sfn "$AW_WALLPAPERS/$want.png" "$AW_STATE_DIR/wallpaper.png" \
-        || die "could not point the wallpaper at $want"
+      # A wallpaper the user chose is theirs. Changing theme recolours the
+      # desktop; it does not get to overwrite a picture somebody picked. Same
+      # contract as the config files - once you decide, we stop deciding.
+      if [ -r "$AW_STATE_DIR/wallpaper-custom" ]; then
+        printf 'keeping your wallpaper (%s); undo with: archwright wallpaper reset\n' \
+          "$(cat "$AW_STATE_DIR/wallpaper-custom")"
+      else
+        ln -sfn "$AW_WALLPAPERS/$want.png" "$AW_STATE_DIR/wallpaper.png" \
+          || die "could not point the wallpaper at $want"
+      fi
       printf '%s\n' "$want" > "$AW_STATE_DIR/theme" \
         || die "could not record the theme"
 
@@ -303,7 +313,118 @@ cmd_theme() {
       # foot rereads nothing, by design - it has no reload mechanism at all.
       printf 'already-open terminals keep the old colours; new ones pick it up.\n'
       ;;
-    *) usage_error "theme: unknown action [$sub] (show, list, set)" ;;
+    pick)
+      [ "$#" -le 1 ] || usage_error "theme pick: takes no arguments"
+      command -v fuzzel >/dev/null 2>&1 || die "theme pick needs fuzzel"
+      [ -d "$AW_PALETTES" ] || die "no palettes installed at $AW_PALETTES"
+      local f id name entries="" chosen
+      for f in "$AW_PALETTES"/*.palette; do
+        [ -f "$f" ] || continue
+        id="${f##*/}"; id="${id%.palette}"
+        name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*//p' "$f" | head -1)"
+        # Rofi's extended dmenu protocol, which fuzzel implements: the icon
+        # follows a NUL. The palette's own wallpaper is the swatch, so the list
+        # shows what each theme looks like rather than only what it is called.
+        # If fuzzel cannot load it, it falls back to no icon and the entry is
+        # still selectable - degraded, not broken.
+        entries="$entries$id  -  ${name:-$id}"$'\0'"icon"$'\x1f'"$AW_WALLPAPERS/$id.png"$'\n'
+      done
+      [ -n "$entries" ] || die "no palettes to choose from"
+      chosen="$(printf '%b' "$entries" | fuzzel --dmenu --prompt 'theme> ')" || return 0
+      [ -n "$chosen" ] || return 0
+      cmd_theme set "${chosen%% *}"
+      ;;
+    *) usage_error "theme: unknown action [$sub] (show, list, set, pick)" ;;
+  esac
+}
+
+# --- the wallpaper -----------------------------------------------------------
+#
+# Until now the wallpaper was derived from the palette and there was no way to
+# use your own image at all. It is a symlink in the user's own state directory
+# that swaybg resolves with %h, so all of this works without root.
+#
+# THE OWNERSHIP RULE, APPLIED AGAIN
+#
+# Once you have chosen your own image, a theme change stops overriding it. That
+# is the same contract as the config files: Archwright picks the default, and
+# the moment you make a choice it stops making it for you. `wallpaper reset`
+# hands the decision back.
+#
+# The choice is recorded rather than inferred from the symlink, because a
+# symlink pointing into our own wallpapers directory is ambiguous - it could be
+# the palette default or a deliberate pick of that same image.
+AW_WALLPAPER_LINK="$AW_STATE_DIR/wallpaper.png"
+AW_WALLPAPER_CHOICE="$AW_STATE_DIR/wallpaper-custom"
+
+# Where `wallpaper pick` looks, in order.
+aw_wallpaper_dirs() {
+  printf '%s\n' \
+    "${XDG_PICTURES_DIR:-$HOME/Pictures}/Wallpapers" \
+    "${XDG_PICTURES_DIR:-$HOME/Pictures}" \
+    "$AW_WALLPAPERS"
+}
+
+wallpaper_apply() {
+  local target="$1"
+  [ -f "$target" ] || die "no such image: $target"
+  mkdir -p "$AW_STATE_DIR" || die "could not create $AW_STATE_DIR"
+  ln -sfn "$target" "$AW_WALLPAPER_LINK" || die "could not point the wallpaper at $target"
+  # Best-effort: running this outside a graphical session is legitimate.
+  systemctl --user restart archwright-swaybg.service >/dev/null 2>&1
+}
+
+cmd_wallpaper() {
+  local sub="${1:-show}"
+  case "$sub" in
+    show)
+      if [ -r "$AW_WALLPAPER_CHOICE" ]; then
+        printf '%s (chosen; a theme change will not replace it)\n' \
+          "$(cat "$AW_WALLPAPER_CHOICE")"
+      else
+        printf '%s (from the %s theme)\n' \
+          "$(readlink "$AW_WALLPAPER_LINK" 2>/dev/null || printf 'none')" \
+          "$(current_theme)"
+      fi
+      ;;
+    set)
+      shift
+      local img="${1-}"
+      [ -n "$img" ] || usage_error "wallpaper set: which image?"
+      [ "$#" -le 1 ] || usage_error "wallpaper set: too many arguments"
+      case "$img" in /*) ;; *) img="$PWD/$img" ;; esac
+      [ -f "$img" ] || die "no such image: $img"
+      wallpaper_apply "$img"
+      mkdir -p "$AW_STATE_DIR"
+      printf '%s\n' "$img" > "$AW_WALLPAPER_CHOICE" \
+        || die "could not record the wallpaper choice"
+      printf 'wallpaper set to %s\n' "$img"
+      printf 'it will survive a theme change; undo with: archwright wallpaper reset\n'
+      ;;
+    reset)
+      [ "$#" -le 1 ] || usage_error "wallpaper reset: takes no arguments"
+      rm -f "$AW_WALLPAPER_CHOICE"
+      local t; t="$(current_theme)"
+      wallpaper_apply "$AW_WALLPAPERS/$t.png"
+      printf 'wallpaper follows the theme again (%s)\n' "$t"
+      ;;
+    pick)
+      [ "$#" -le 1 ] || usage_error "wallpaper pick: takes no arguments"
+      command -v fuzzel >/dev/null 2>&1 || die "wallpaper pick needs fuzzel"
+      local dir choice list=""
+      while read -r dir; do
+        [ -d "$dir" ] || continue
+        list="$list$(find "$dir" -maxdepth 1 -type f \
+                      \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \
+                         -o -iname '*.webp' \) 2>/dev/null)"$'\n'
+      done < <(aw_wallpaper_dirs)
+      list="$(printf '%s' "$list" | grep -v '^$' | LC_ALL=C sort -u)"
+      [ -n "$list" ] || die "no images found in $(aw_wallpaper_dirs | tr '\n' ' ')"
+      choice="$(printf '%s\n' "$list" | fuzzel --dmenu --prompt 'wallpaper> ')" || return 0
+      [ -n "$choice" ] || return 0
+      cmd_wallpaper set "$choice"
+      ;;
+    *) usage_error "wallpaper: unknown action [$sub] (show, set, reset, pick)" ;;
   esac
 }
 
@@ -533,6 +654,7 @@ main() {
     default)          cmd_default "$@" ;;
     mise-install)     cmd_mise_install "$@" ;;
     theme)            cmd_theme "$@" ;;
+    wallpaper)        cmd_wallpaper "$@" ;;
     hardware)         cmd_hardware "$@" ;;
     sudo-window)      cmd_sudo_window "$@" ;;
     *)                usage_error "unknown command [$cmd]" ;;

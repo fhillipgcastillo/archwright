@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Screenshots.
+#
+# A script rather than three long lines in hyprland.conf: the pipelines involve
+# quoting that a compositor keybind mangles, and a keybind that silently does
+# nothing is the worst kind of broken - nothing to read, nothing to search for.
+#
+# There was previously no way to take a screenshot on this system at all, not
+# even from a terminal.
+set -uo pipefail
+
+die() { printf 'archwright-screenshot: %s\n' "$*" >&2; notify "$*"; exit 1; }
+notify() { command -v notify-send >/dev/null 2>&1 && notify-send -a Archwright "Screenshot" "$1"; }
+
+usage() {
+  cat <<'EOF'
+usage: archwright-screenshot <region|screen|annotate>
+
+  region    select an area, copy it to the clipboard
+  screen    whole output, saved to the pictures directory
+  annotate  select an area, open it in swappy to mark up
+EOF
+}
+
+# Tools are checked per action, AFTER the argument is parsed. Checking up front
+# meant `--help` failed on any machine without grim installed, which is exactly
+# the machine where somebody is most likely to be reading the help.
+need() {
+  local t
+  for t in "$@"; do
+    command -v "$t" >/dev/null 2>&1 || die "$t is not installed"
+  done
+}
+
+SHOTS="${XDG_PICTURES_DIR:-$HOME/Pictures}/Screenshots"
+stamp="$(date '+%Y-%m-%d_%H-%M-%S')"
+
+case "${1:-region}" in
+  region)
+    need grim wl-copy slurp
+    # slurp exits non-zero when the selection is cancelled with Escape. That is
+    # not an error and must not raise a notification.
+    geometry="$(slurp 2>/dev/null)" || exit 0
+    [ -n "$geometry" ] || exit 0
+    grim -g "$geometry" - | wl-copy || die "could not capture the region"
+    notify "Region copied to the clipboard"
+    ;;
+  screen)
+    need grim wl-copy
+    mkdir -p "$SHOTS" || die "could not create $SHOTS"
+    grim "$SHOTS/$stamp.png" || die "could not capture the screen"
+    grim - 2>/dev/null | wl-copy 2>/dev/null
+    notify "Saved to Screenshots/$stamp.png"
+    ;;
+  annotate)
+    need grim slurp swappy
+    geometry="$(slurp 2>/dev/null)" || exit 0
+    [ -n "$geometry" ] || exit 0
+    mkdir -p "$SHOTS" || die "could not create $SHOTS"
+    grim -g "$geometry" - | swappy -f - -o "$SHOTS/$stamp.png" \
+      || die "could not open the annotator"
+    ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

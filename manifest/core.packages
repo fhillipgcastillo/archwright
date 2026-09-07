@@ -127,3 +127,30 @@ npm
 # different decade from the rest of the desktop. Both are in extra.
 adw-gtk-theme
 papirus-icon-theme
+
+## Group: desktop-apps
+# The graphical answers to system tasks (P2). Without these the system is a
+# compositor and a terminal, which anyone can assemble from the wiki in an
+# afternoon - see D23.
+#
+# nm-applet is the one that matters most: it is the menu that LISTS available
+# wifi networks, which is the part a laptop cannot do without. The connection
+# editor is a separate package and is for editing saved connections rather than
+# joining new ones, so both are needed and they are not interchangeable.
+network-manager-applet
+nm-connection-editor
+pavucontrol
+blueman
+# Screenshots. There was previously no way to take one at all, not even from a
+# terminal. grim captures, slurp selects a region, swappy annotates.
+grim
+slurp
+swappy
+# Monitor arrangement, Hyprland-aware: nwg-displays writes hyprland monitor
+# config directly rather than leaving the user to translate from a generic tool.
+nwg-displays
+# Nautilus cannot extract a zip without file-roller.
+file-roller
+# A non-modal editor, for when the person at the keyboard is not you.
+gnome-text-editor
+gnome-calculator

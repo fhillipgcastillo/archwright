@@ -26,6 +26,18 @@ aw_apps() {
   local manifest="$AW_ROOT/$AW_EXTRAS_MANIFEST_REL"
   [ -f "$manifest" ] || aw_die "missing $AW_EXTRAS_MANIFEST_REL"
 
+  # Our own screenshot helper. A script rather than three long pipelines in a
+  # compositor keybind, where the quoting gets mangled and a broken bind
+  # silently does nothing.
+  aw_log info "installing the screenshot helper"
+  install -d -m 0755 /mnt/usr/share/archwright/bin
+  install -m 0755 "$AW_ROOT/bin/archwright-screenshot" \
+    /mnt/usr/share/archwright/bin/archwright-screenshot \
+    || aw_die "could not install the screenshot helper"
+  ln -sf /usr/share/archwright/bin/archwright-screenshot \
+    /mnt/usr/bin/archwright-screenshot \
+    || aw_die "could not link the screenshot helper"
+
   aw_log info "installing default application handlers"
   install -d -m 0755 /mnt/etc/xdg
   install -m 0644 "$AW_ROOT/config/xdg/mimeapps.list" /mnt/etc/xdg/mimeapps.list \

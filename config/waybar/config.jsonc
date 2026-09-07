@@ -11,7 +11,7 @@
   "spacing": 8,
   "modules-left": ["custom/launcher", "hyprland/workspaces"],
   "modules-center": ["clock"],
-  "modules-right": ["pulseaudio", "network", "battery", "tray"],
+  "modules-right": ["pulseaudio", "bluetooth", "network", "battery", "tray"],
 
   // Click to open the launcher, for anyone who does not want to reach for
   // Super + Space - and for anyone whose Super key is being eaten by their
@@ -40,10 +40,26 @@
     "format-muted": "muted",
     "on-click": "pavucontrol"
   },
+  // Clicking an indicator opens the thing that manages it. That is the whole
+  // graphical-settings story on this system: no control centre, just the bar
+  // element you were already looking at.
+  //
+  // nm-connection-editor edits SAVED connections. Joining a new wifi network
+  // is nm-applet's tray menu, which the compositor starts - the two are not
+  // interchangeable and neither replaces the other.
   "network": {
     "format-wifi": "{essid} {signalStrength}%",
     "format-ethernet": "wired",
-    "format-disconnected": "offline"
+    "format-disconnected": "offline",
+    "tooltip-format-wifi": "{essid} ({signalStrength}%) - click to edit connections",
+    "on-click": "nm-connection-editor"
+  },
+  "bluetooth": {
+    "format": "bt {status}",
+    "format-disabled": "",
+    "format-connected": "bt {num_connections}",
+    "tooltip-format": "{controller_alias} - click to open the manager",
+    "on-click": "blueman-manager"
   },
   "battery": {
     "format": "bat {capacity}%",

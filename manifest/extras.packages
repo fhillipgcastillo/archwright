@@ -29,3 +29,32 @@ ollama
 ## Requires: multilib
 steam
 lutris
+
+## Group: desktop-tools
+# Useful, not essential. Disks, processes, disk usage, keys, colour picking,
+# screen recording, clipboard history, automounting.
+gnome-disk-utility
+gnome-system-monitor
+baobab
+seahorse
+hyprpicker
+wf-recorder
+cliphist
+udiskie
+
+## Group: theming-gui
+# Graphical theme and wallpaper editing, for people who would rather browse
+# thumbnails than run a command.
+#
+# azote wants to OWN wallpaper setting - it launches its own backend. Archwright
+# manages the wallpaper through a systemd unit and a symlink, so the two will
+# fight if both are driving. Selecting this group is choosing azote's way; see
+# the note in the README.
+azote
+nwg-look
+
+## Group: printing
+# A daemon and a print dialog. Clearly opt-in: a machine that never prints has
+# no business running cupsd.
+cups
+system-config-printer

@@ -28,4 +28,15 @@ audio/flac=mpv.desktop
 
 application/pdf=org.gnome.Evince.desktop
 
-text/plain=nvim.desktop
+# A GUI editor for double-clicking a text file. nvim is still the terminal
+# editor and still the right tool there, but a file manager launching a modal
+# editor with no terminal around it is a dead end for anyone who is not you.
+text/plain=org.gnome.TextEditor.desktop
+
+# Archives. Nautilus cannot extract a zip on its own.
+application/zip=org.gnome.FileRoller.desktop
+application/x-tar=org.gnome.FileRoller.desktop
+application/gzip=org.gnome.FileRoller.desktop
+application/x-xz=org.gnome.FileRoller.desktop
+application/x-7z-compressed=org.gnome.FileRoller.desktop
+application/vnd.rar=org.gnome.FileRoller.desktop
