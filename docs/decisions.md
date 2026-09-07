@@ -949,6 +949,22 @@ packages, signs and updates, and replaced it with an unsigned copy from a
 second registry that pacman cannot see. Stubs exist for what Arch does *not*
 package. A unit test asserts `gh` never appears in `manifest/agents.tsv`.
 
+**The trade this makes, stated plainly.** Spec §9.1 had `gh` as a lazy stub, so
+it cost nothing until used. As a core package it is installed on every machine
+whether or not the user touches GitHub. Together with the node toolchain that
+the stubs require (L42), this milestone added roughly 80MB to every install:
+
+| Package | Why it is in core | Paid by |
+|---|---|---|
+| `github-cli` | pacman signatures and updates, rather than an unsigned second registry | everyone |
+| `nodejs`, `npm` | every stub resolves through mise's npm backend; the alternative is a large silent download at first launch, outside pacman's reach | everyone |
+
+That is a real cost and the reasoning above is not a free win. It is judged
+worth it because a base system that cannot verify what it installed is a worse
+default than one that is 80MB larger — but if the project ever needs to defend
+its install size, this is the first place to look, and moving `github-cli` to an
+extras group is the obvious lever.
+
 ## D19 — The `archwright` CLI arrives in milestone 5
 
 The plan put the CLI in milestone 6. But §9.2 and §9.4 define their features as
@@ -1293,3 +1309,56 @@ in it notices.
 | Only one of five agent packages is resolved against a real registry | The gate first-runs `pi`, the row with the weakest evidence behind it. The other four are guarded by same-file assertions, which L60 correctly says are not oracles: a package that was unpublished or renamed its bin would still ship green. Resolving all five would cost one slow gate run and is worth doing when the gate is next touched. |
 | The stepped-clock and suspend paths of the sudo window are argued, not executed | The gate waits out a one-minute window, which exercises the monotonic trigger for real. Nothing in the harness steps the clock or suspends the VM. The dual-trigger design is reasoned from systemd's elapse semantics. |
 | `SIGKILL` between revoking and re-granting | The grant is now removed *before* the old timer is cancelled, so the uncatchable gap contains no grant. A `SIGKILL` in the remaining window loses the *new* grant, never leaks the old one. |
+
+## Self-review of milestone 5 — what the review cycle crowded out
+
+Written after the fact, unprompted by any reviewer, asking a different question:
+not "is this code safe" but "did this milestone deliver what it was for".
+
+### S1 — The headline command has never been run on the installed system
+`archwright agent` is what `Super + Shift + Ctrl + A` launches and what the `a`
+shortcut calls. It is the primary user-facing surface of the whole milestone.
+The gate has never executed it. Nor `archwright default agent`, nor
+`archwright mise-install`.
+
+What the gate does instead: greps `shell.conf` for the string "archwright
+agent", and runs one stub **directly**, bypassing the dispatcher entirely. So
+every part of the launch path — reading the recorded default, resolving it in
+`~/.local/bin`, the `$HOME` to `~/Work` redirect, forwarding arguments — is
+proven only against a fake agent in a unit test.
+
+This traces back to my own plan. Task 6's gate list is nine assertions, and
+every one is an artifact check except "a stub installs on first run", which was
+written to test mise rather than the command. Three review rounds went past it
+without noticing, because I scoped all three to security, and an unexercised
+feature is not a vulnerability.
+
+### S2 — Four of the five agent packages have no oracle at all
+The gate resolves `pi` against the real registry. `claude`, `codex`, `opencode`
+and `crush` are guarded only by assertions that read the same manifest they are
+checking — exactly the pattern L60 identifies as not an oracle, and exactly the
+class of mistake that produced the wrong D17. Any of the four could be
+unpublished, renamed, or have dropped its `bin` declaration, and the gate would
+stay green.
+
+### S3 — Core grew by roughly 80MB and nothing says so
+`nodejs`, `npm` and `github-cli` were added to `manifest/core.packages` during
+this milestone. Spec §9.1 had `gh` as a **lazy stub**; D18 promoted it to a real
+package for pacman's signatures and updates, which is defensible — but it means
+every install now pays for a tool not everyone wants, and D18 presents that as a
+straight improvement rather than a trade. The node toolchain (L42) is the same
+shape: a real argument, a real cost, stated only as the argument.
+
+### S4 — Repair outweighed delivery, and most of the repair was avoidable
+Thirteen commits: four deliver the milestone, six repair it, three are
+housekeeping. Two of the repairs were genuine and serious — a sudo window that
+survived a reboot, and one that could fail to close at all. The other four were
+my own sloppiness that costs nothing to avoid: a phase that worked but was not
+registered in its own whitelist, a lint failure committed because I chained the
+check to the commit through a pipe, stale milestone labels, and a test written
+around the broken half of the feature it was testing.
+
+The lesson is not "review less" — the reviews found permanent passwordless
+root, twice. It is that a fix cycle driven entirely by an adversarial reviewer
+optimises for the reviewer's question. Nobody was asking whether the thing
+worked.

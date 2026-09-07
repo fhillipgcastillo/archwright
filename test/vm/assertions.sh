@@ -396,6 +396,93 @@ check "an open window survives a non-boot cleanup" periodic_clean_leaves_it
 check "no window is left behind by these checks" sh -c "! test -f $SUDO_DROPIN"
 check "sudoers still parses at the end" visudo -c
 
+# --- the commands, not the files they leave behind ---------------------------
+#
+# Everything above this point checks that artifacts exist. None of it runs what
+# a user types. `archwright agent` is what Super+Shift+Ctrl+A launches and what
+# the `a` shortcut calls - the primary surface of this whole milestone - and
+# until these assertions existed it had only ever run against a fake agent in a
+# unit test. The "a stub installs on first run" check above deliberately invokes
+# the stub DIRECTLY, so it proves mise works and says nothing about the command.
+
+aw_user_run() { runuser -u "$AW_USER" -- env HOME="$AW_HOME" "$@"; }
+
+# A launcher we control, so the dispatcher can be driven end to end without
+# downloading an agent or depending on one's behaviour.
+# $PWD and $* belong to the generated script and must not expand here - that is
+# the whole point of the probe.
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' 'printf "CWD=%s\n" "$PWD"' 'printf "ARGS=%s\n" "$*"' \
+  > "$AW_HOME/.local/bin/awgate"
+chmod 0755 "$AW_HOME/.local/bin/awgate"
+chown "$AW_USER:$AW_USER" "$AW_HOME/.local/bin/awgate"
+
+check "default agent can be set"     aw_user_run archwright default agent awgate
+default_agent_is() { [ "$(aw_user_run archwright default agent)" = "$1" ]; }
+check "the CLI reads back what it set"   default_agent_is awgate
+check "the choice reached the state file" \
+  grep -qx awgate "$AW_HOME/.local/state/archwright/default-agent"
+
+# Launched from $HOME, which must be redirected: agents refuse to treat the
+# home directory as a workspace, and this redirect has never been exercised
+# outside a unit test.
+agent_output="$(cd "$AW_HOME" && aw_user_run archwright agent --probe one 2>&1)"
+agent_says() { case "$agent_output" in *"$1"*) return 0 ;; esac; return 1; }
+check "archwright agent launches the default agent" agent_says "ARGS="
+check "it forwards its arguments"                   agent_says "ARGS=--probe one"
+check "a launch from HOME lands in ~/Work"          agent_says "CWD=$AW_HOME/Work"
+
+# The `a` shortcut has to reach the same dispatcher. Asserting it is DEFINED,
+# which is all the earlier probe did, does not prove it runs anything.
+cat > /tmp/aw-a-probe.sh <<'PROBE'
+cd "$HOME" || exit 1
+a --probe two
+PROBE
+a_output="$(runuser -u "$AW_USER" -- bash -l /tmp/aw-a-probe.sh 2>&1)"
+a_says() { case "$a_output" in *"$1"*) return 0 ;; esac; return 1; }
+check "the a shortcut runs the default agent" a_says "ARGS=--probe two"
+check "the a shortcut redirects out of HOME"  a_says "CWD=$AW_HOME/Work"
+
+# mise-install writes a launcher; it does not need the network to do it. The
+# name is inferred from the spec, which is the half that was broken while its
+# test passed an explicit name.
+check "mise-install accepts a pinned spec" \
+  aw_user_run archwright mise-install npm:gate-probe@1.2.3
+check "it inferred the name without the pin" test -x "$AW_HOME/.local/bin/gate-probe"
+check "the generated launcher is valid bash" bash -n "$AW_HOME/.local/bin/gate-probe"
+check "the generated launcher carries the spec" \
+  grep -q 'npm:gate-probe@1.2.3' "$AW_HOME/.local/bin/gate-probe"
+
+rm -f "$AW_HOME/.local/bin/awgate" "$AW_HOME/.local/bin/gate-probe" /tmp/aw-a-probe.sh
+aw_user_run archwright default agent claude >/dev/null 2>&1
+check "the default agent was restored" default_agent_is claude
+
+# --- every agent package, against the real registry --------------------------
+#
+# Resolving one package proves mise works. It does not prove the other four
+# exist: those are guarded only by assertions that read the same manifest they
+# check, which L60 says is not an oracle - and a wrong package name is exactly
+# the mistake that produced the original D17.
+#
+# `npm view` asks the registry without installing, so all five cost seconds
+# rather than minutes. It reads the GENERATED stubs, not the manifest, so it
+# also catches the generator dropping or mangling a field.
+npm_declares_bin() {
+  local spec="$1" want="$2" pkg
+  case "$spec" in npm:*) pkg="${spec#npm:}" ;; *) return 0 ;; esac
+  aw_user_run npm view "$pkg" bin --json 2>/dev/null | grep -q "\"$want\""
+}
+for stub in /usr/share/archwright/agent-stubs/*; do
+  [ -f "$stub" ] || continue
+  stub_name="$(basename "$stub")"
+  stub_spec="$(sed -n 's/.*mise exec "\([^"]*\)".*/\1/p' "$stub")"
+  stub_bin="$(sed -n 's/.*-- \([^ ]*\) .*/\1/p' "$stub")"
+  check "stub $stub_name names a spec"       test -n "$stub_spec"
+  check "stub $stub_name names an executable" test -n "$stub_bin"
+  check "the registry says $stub_spec ships '$stub_bin'" \
+    npm_declares_bin "$stub_spec" "$stub_bin"
+done
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then
