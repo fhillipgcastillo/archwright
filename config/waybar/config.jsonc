@@ -4,7 +4,10 @@
 {
   "layer": "top",
   "position": "top",
-  "height": 30,
+  // 34, not 30: waybar refuses to go below the height its own modules
+  // require and logs a warning every start. Asking for what it will
+  // actually use keeps the journal clean and the bar the same size.
+  "height": 34,
   "spacing": 8,
   "modules-left": ["custom/launcher", "hyprland/workspaces"],
   "modules-center": ["clock"],

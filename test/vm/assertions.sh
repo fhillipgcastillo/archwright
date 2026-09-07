@@ -577,18 +577,49 @@ check_v "hyprland reports no configuration errors" hypr_config_is_clean
 
 # waybar behaves the same way with CSS: it starts, drops the rule it cannot
 # parse, and says so only in the journal.
-waybar_css_is_clean() {
-  local out
+waybar_journal_is_clean() {
+  local out bad
   # The user's journal, read as the user - waybar runs as a user unit and root's
   # journalctl would not see it.
   out="$(runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" \
            journalctl --user-unit waybar -n 200 --no-pager 2>/dev/null || true)"
-  printf '%s\n' "$out"
-  # GTK reports a bad selector or an unknown property as a parse error naming
-  # the stylesheet. That is the class worth failing on.
-  ! printf '%s' "$out" | grep -qiE 'css|style|parse'
+
+  # Match waybar's own severity markers, not the word "css". The first version
+  # of this grepped for 'css|style|parse' and matched waybar's perfectly normal
+  # "[info] Using CSS file ..." line, so it failed on a healthy bar - a check
+  # that cannot pass is no better than one that cannot fail.
+  #
+  # "No batteries" is expected in a VM and is not a defect.
+  bad="$(printf '%s' "$out" | grep -E '\[(error|critical)\]' || true)"
+  bad="$bad$(printf '%s' "$out" | grep -E '\[warning\]' | grep -viE 'no batteries' || true)"
+  printf '%s\n' "$bad"
+  [ -z "$bad" ]
 }
-check_v "waybar parsed its stylesheet without errors" waybar_css_is_clean
+check_v "waybar started without errors or warnings" waybar_journal_is_clean
+
+# --- probe: the 0.53+ layer rule syntax --------------------------------------
+#
+# INFORMATIONAL, not an assertion. Hyprland 0.53 replaced the rule syntax and
+# the replacement could not be confirmed from any source worth trusting, so the
+# blur-on-layers lines were removed rather than guessed at. This asks the
+# compositor that is actually installed which form it accepts, which is the one
+# answer that cannot be wrong. Remove this block once the syntax is settled.
+printf '      --- layerrule syntax probe (informational) ---\n'
+for candidate in \
+  'blur, waybar' \
+  'blur on, match:namespace waybar' \
+  'match:namespace = waybar, blur = true' \
+  'blur = true, match:namespace = waybar'
+do
+  if hyprctl_user keyword layerrule "$candidate" >/dev/null 2>&1 \
+     && hyprctl_user configerrors 2>&1 | grep -qi 'no errors'; then
+    printf '      ACCEPTED: layerrule = %s\n' "$candidate"
+  else
+    printf '      rejected: layerrule = %s\n' "$candidate"
+  fi
+  # Clear whatever the attempt left behind before trying the next one.
+  hyprctl_user reload >/dev/null 2>&1
+done
 
 # The wallpaper: a link the user owns, so a theme change needs no root.
 check "the wallpaper link resolves"  test -f "$AW_HOME/.local/state/archwright/wallpaper.png"
