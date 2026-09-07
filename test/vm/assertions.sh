@@ -16,6 +16,22 @@ check() {
   fi
 }
 
+# Like check, but shows the command's own output when it fails. For assertions
+# where "it failed" is not enough to act on and the next step would otherwise be
+# a whole gate run spent guessing.
+check_v() {
+  local label="$1"; shift
+  local out status
+  out="$("$@" 2>&1)"; status=$?
+  if [ "$status" -eq 0 ]; then
+    printf 'ok    %s\n' "$label"
+  else
+    printf 'FAIL  %s (exit %s)\n' "$label" "$status"
+    printf '%s\n' "$out" | head -14 | sed 's/^/      | /'
+    fails=$((fails + 1))
+  fi
+}
+
 check "root filesystem is btrfs"    test "$(findmnt -no FSTYPE /)" = "btrfs"
 check "root is the @ subvolume"     sh -c 'findmnt -no OPTIONS / | tr "," "\n" | grep -qx "subvol=/@"'
 check "/boot is vfat (the ESP)"     test "$(findmnt -no FSTYPE /boot)" = "vfat"
@@ -528,9 +544,9 @@ check "waybar imports its colours" \
 
 # Each of these parses its own config and says so. This is what catches a
 # broken include, which is otherwise invisible until first login.
-check "foot accepts the themed config" \
+check_v "foot accepts the themed config" \
   runuser -u "$AW_USER" -- env HOME="$AW_HOME" foot --check-config
-check "fuzzel accepts the themed config" \
+check_v "fuzzel accepts the themed config" \
   runuser -u "$AW_USER" -- env HOME="$AW_HOME" fuzzel --check-config
 
 # The compositor is the real oracle: ask the running Hyprland what colour its
@@ -563,13 +579,24 @@ style_edited="$(md5sum "$AW_HOME/.config/waybar/style.css" | cut -d' ' -f1)"
 
 # Functions, not `sh -c`: a child shell sees neither these variables nor
 # aw_user_run, which is the mistake milestone 2 already made once.
-theme_list_marks_current() { aw_user_run archwright theme list | grep -q '^\* mocha'; }
-theme_show_names_it()      { aw_user_run archwright theme show | grep -q mocha; }
-unknown_theme_refused()    { ! aw_user_run archwright theme set nosuchtheme >/dev/null 2>&1; }
+# Capture, then match. `cmd | grep -q` inverts under `set -o pipefail`: the
+# pipeline reports the command's exit status, not grep's verdict. That has
+# already cost this project one debugging round (L46).
+theme_list_marks_current() {
+  local out; out="$(aw_user_run archwright theme list 2>&1)"
+  printf '%s\n' "$out"
+  printf '%s' "$out" | grep -q '^\* mocha'
+}
+theme_show_names_it() {
+  local out; out="$(aw_user_run archwright theme show 2>&1)"
+  printf '%s\n' "$out"
+  printf '%s' "$out" | grep -q mocha
+}
+unknown_theme_refused() { ! aw_user_run archwright theme set nosuchtheme >/dev/null 2>&1; }
 
-check "theme list marks the current one" theme_list_marks_current
-check "theme show names it"              theme_show_names_it
-check "an unknown theme is refused"      unknown_theme_refused
+check_v "theme list marks the current one" theme_list_marks_current
+check_v "theme show names it"              theme_show_names_it
+check   "an unknown theme is refused"      unknown_theme_refused
 
 check "theme set succeeds" \
   runuser -u "$AW_USER" -- env HOME="$AW_HOME" archwright theme set tokyonight
