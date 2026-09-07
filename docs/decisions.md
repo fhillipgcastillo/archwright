@@ -1362,3 +1362,58 @@ The lesson is not "review less" — the reviews found permanent passwordless
 root, twice. It is that a fix cycle driven entirely by an adversarial reviewer
 optimises for the reviewer's question. Nobody was asking whether the thing
 worked.
+
+---
+
+## P2 — The desktop has almost no GUI applications for system tasks — NOT STARTED
+
+Raised during milestone 6. The system installs a compositor, a bar and a
+terminal, and then expects the terminal for everything else. That is a
+defensible position for a developer's machine and an indefensible one for a
+system offered to other people: there is currently no graphical way to join a
+wifi network, change the volume, pair a Bluetooth device, take a screenshot, or
+see what is using the disk.
+
+It also undercuts the point of the project. "Minimal" is not the same as
+"unfinished", and a base install anyone can reproduce from the Arch wiki in an
+afternoon adds nothing over doing exactly that.
+
+**This needs a discussion before a plan, not a shopping list bolted on.** The
+tension is real in both directions: every GUI added is weight on every install
+(the milestone 5 audit already found 80MB added without it being stated as a
+trade), and a half-set of GUIs is worse than none, because the user cannot tell
+which tasks have one.
+
+### Areas with no graphical answer today
+
+| Task | Today | Notes for the discussion |
+|---|---|---|
+| Wifi / network | `nmtui` in a terminal | The most glaring one. A laptop that cannot join a network without a terminal is not finished. |
+| Audio devices, per-app volume | none | |
+| Bluetooth | none | No pairing UI at all. |
+| Screenshots | **none at all** | Not even a CLI tool is installed. A desktop without a screenshot key is missing a basic function, and this one is cheap. |
+| Display arrangement | edit `hyprland.conf` | Matters the moment a second monitor is plugged in. |
+| Disk usage / partitions | `lsblk`, `df` | |
+| System monitor | `btop` in a terminal | Arguably answered already. |
+| Printing | none | Possibly out of scope; worth deciding rather than defaulting. |
+| Archives | none | Nautilus needs a helper to extract a zip. |
+| Text editor (GUI) | `nvim` | A non-modal editor is a reasonable expectation for a guest at the machine. |
+| Calculator | none | Trivial, and conspicuously absent. |
+
+### Questions the discussion has to settle
+
+1. **One settings app or several small ones?** A single control centre is
+   coherent but drags in a large dependency set built for a different desktop.
+   Several focused tools stay light but leave the user hunting for which one
+   owns a given setting.
+2. **Where is the line between core and an extras group?** Wifi and screenshots
+   look like core. A printer dialog probably does not.
+3. **Does anything here need a keybind and a place on the bar**, or is the
+   launcher enough?
+4. **What does this cost?** Measure it, and state it as a trade — the D18
+   lesson.
+
+Nothing above is a decision, and no package named here has been checked against
+the official repositories yet. That check comes first, before any plan: it is
+the rule that caught walker being AUR-only and would have caught the Limine
+tooling.

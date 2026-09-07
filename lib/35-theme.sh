@@ -103,7 +103,7 @@ aw_theme() {
   # The colour files are written straight into the user's home: they are ours,
   # not seeded, and are replaced wholesale whenever the theme changes.
   aw_log info "writing the colour files"
-  n="$(aw_theme_generate "$files" "$tpl_dir" "$home" theme)"
+  n="$(aw_theme_generate "$files" "$tpl_dir" "$home/.config" theme)"
   [ "$n" -gt 0 ] || aw_die "no colour files were written"
   aw_log info "  $n file(s)"
 

@@ -96,21 +96,21 @@ assert_fails aw_theme_render "$tmp/tpl/absent.in" "a missing template fails loud
 # --- generating by owner -----------------------------------------------------
 printf 'x=@base@\n' > "$tmp/tpl/one.in"
 printf 'y=@text@\n' > "$tmp/tpl/two.in"
-printf '# comment\none.in\t.config/a/one\ttheme\ntwo.in\t.config/b/two\tuser\n' > "$tmp/files.tsv"
+printf '# comment\none.in\ta/one\ttheme\ntwo.in\tb/two\tuser\n' > "$tmp/files.tsv"
 
 assert_eq "$(aw_theme_generate "$tmp/files.tsv" "$tmp/tpl" "$tmp/out" theme)" "1" \
   "only the theme-owned row is generated"
-if [ -f "$tmp/out/.config/a/one" ]; then _pass
+if [ -f "$tmp/out/a/one" ]; then _pass
 else _fail "theme" "the theme-owned file was not written"; fi
-if [ -f "$tmp/out/.config/b/two" ]; then
+if [ -f "$tmp/out/b/two" ]; then
   _fail "theme" "a user-owned file was written during a theme-owned pass"
 else _pass; fi
 
 assert_eq "$(aw_theme_generate "$tmp/files.tsv" "$tmp/tpl" "$tmp/out" user)" "1" \
   "the user-owned row generates on its own pass"
-assert_contains "$(cat "$tmp/out/.config/b/two")" "y=#161718" "with substitution applied"
+assert_contains "$(cat "$tmp/out/b/two")" "y=#161718" "with substitution applied"
 
-printf 'one.in\t.config/a/one\tsomebody\n' > "$tmp/badowner.tsv"
+printf 'one.in\ta/one\tsomebody\n' > "$tmp/badowner.tsv"
 assert_fails aw_theme_generate "$tmp/badowner.tsv" "$tmp/tpl" "$tmp/out" theme \
   "an unknown owner is refused"
 
@@ -162,7 +162,17 @@ while IFS=$'\t' read -r template dest owner; do
   case "$template" in ''|'#'*) continue ;; esac
   if [ -f "$tpl_dir/$template" ]; then _pass
   else _fail "theme-files.tsv" "row names a template that does not exist: $template"; fi
-  case "$dest" in .config/*) _pass ;; *) _fail "theme-files.tsv" "destination is not under .config: $dest" ;; esac
+  # Destinations are relative and carry no .config/ prefix. The two trees they
+  # are rendered into are rooted differently - ~/.config for colour files,
+  # /usr/share/archwright/default-config for seeded ones, which is itself
+  # already laid out relative to ~/.config - so the prefix belongs to the
+  # caller. Baking it in put foot.ini at default-config/.config/foot/foot.ini,
+  # where the seeding phase could not find it.
+  case "$dest" in
+    /*|.config/*|*..*) _fail "theme-files.tsv" "destination must be relative and carry no .config prefix: $dest" ;;
+    */*) _pass ;;
+    *) _fail "theme-files.tsv" "destination has no directory component: $dest" ;;
+  esac
   case "$owner" in theme|user) _pass ;; *) _fail "theme-files.tsv" "bad owner: $owner" ;; esac
 done < <(grep -v '^[[:space:]]*#' "$files_tsv" | grep -v '^[[:space:]]*$')
 

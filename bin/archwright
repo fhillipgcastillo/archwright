@@ -280,7 +280,7 @@ cmd_theme() {
       AW_PAL_home="$HOME"
       local n
       n="$(aw_theme_generate "$AW_PREFIX/theme/theme-files.tsv" \
-             "$AW_PREFIX/theme" "$HOME" theme)"
+             "$AW_PREFIX/theme" "$HOME/.config" theme)"
       [ "$n" -gt 0 ] || die "no colour files were written"
 
       mkdir -p "$AW_STATE_DIR"
