@@ -15,6 +15,18 @@ window#waybar {
   color: #ebdbb2;
 }
 
+/* The launcher button. Slightly wider padding than the workspace buttons so
+   it reads as a distinct control rather than another workspace. */
+#custom-launcher {
+  padding: 0 14px;
+  color: #ebdbb2;
+  font-size: 16px;
+}
+
+#custom-launcher:hover {
+  background: #3c3836;
+}
+
 #workspaces button {
   padding: 0 10px;
   color: #928374;

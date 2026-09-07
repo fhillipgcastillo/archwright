@@ -648,6 +648,8 @@ def phase_boot():
             ("grep -c 'archwright-shell.target' /mnt/home/test/.config/hypr/shell.conf",
              "1"),
             ("stat -c %U /mnt/home/test/.config/waybar/config.jsonc", "test"),
+            ("grep -c '\"on-click\": \"fuzzel\"'"
+             " /mnt/home/test/.config/waybar/config.jsonc", "1"),
         ], "boot")
         log("PASS: bootloader, initramfs and snapper are configured in the target")
     finally:

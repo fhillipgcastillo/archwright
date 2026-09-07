@@ -6,9 +6,23 @@
   "position": "top",
   "height": 30,
   "spacing": 8,
-  "modules-left": ["hyprland/workspaces"],
+  "modules-left": ["custom/launcher", "hyprland/workspaces"],
   "modules-center": ["clock"],
   "modules-right": ["pulseaudio", "network", "battery", "tray"],
+
+  // Click to open the launcher, for anyone who does not want to reach for
+  // Super + Space - and for anyone whose Super key is being eaten by their
+  // host, which is the case when the VM is viewed from Windows.
+  //
+  // The icon is written as a \u escape rather than a literal glyph so this
+  // file stays pure ASCII. U+F303 is the Arch logo in Nerd Fonts, which
+  // JetBrainsMono Nerd Font provides. If it renders as an empty box, the font
+  // is missing and any plain text works instead.
+  "custom/launcher": {
+    "format": "\uf303",
+    "tooltip": false,
+    "on-click": "fuzzel"
+  },
 
   "hyprland/workspaces": {
     "format": "{id}",
