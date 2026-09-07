@@ -1,0 +1,31 @@
+# Archwright default application handlers, system-wide.
+#
+# A user's own ~/.config/mimeapps.list takes precedence over this, so changing a
+# default never means editing this file - the ownership split applied to MIME
+# handling.
+#
+# Every .desktop name here was verified against the Arch package file lists
+# rather than guessed.
+[Default Applications]
+text/html=firefox.desktop
+application/xhtml+xml=firefox.desktop
+x-scheme-handler/http=firefox.desktop
+x-scheme-handler/https=firefox.desktop
+x-scheme-handler/about=firefox.desktop
+
+inode/directory=org.gnome.Nautilus.desktop
+
+image/png=imv.desktop
+image/jpeg=imv.desktop
+image/gif=imv.desktop
+image/webp=imv.desktop
+
+video/mp4=mpv.desktop
+video/x-matroska=mpv.desktop
+video/webm=mpv.desktop
+audio/mpeg=mpv.desktop
+audio/flac=mpv.desktop
+
+application/pdf=org.gnome.Evince.desktop
+
+text/plain=nvim.desktop

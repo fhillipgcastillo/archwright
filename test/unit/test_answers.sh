@@ -126,5 +126,22 @@ assert_eq "$AW_AUTOLOGIN" "0" "autologin defaults to off"
 mkbase 'AUTOLOGIN=yes'
 assert_fails aw_answers_validate "autologin must be 0 or 1"
 
+
+# EXTRAS selects opt-in application groups by name.
+mkbase 'EXTRAS=office,containers'
+assert_eq "$AW_EXTRAS" "office,containers" "extras list parsed"
+if aw_answers_validate 2>/dev/null; then _pass
+else _fail "extras" "a valid extras list should validate"; fi
+
+mkbase 'EXTRAS='
+assert_eq "$AW_EXTRAS" "" "extras defaults to empty"
+if aw_answers_validate 2>/dev/null; then _pass
+else _fail "extras" "an empty extras list is valid"; fi
+
+mkbase 'EXTRAS=office; rm -rf /'
+assert_fails aw_answers_validate "extras with a shell metacharacter is rejected"
+mkbase 'EXTRAS=Office'
+assert_fails aw_answers_validate "extras group names are lowercase"
+
 rm -rf "$tmp"
 finish_tests
