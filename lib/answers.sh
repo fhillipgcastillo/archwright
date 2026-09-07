@@ -22,6 +22,7 @@ aw_answers_reset() {
   AW_KEYMAP="us"
   AW_SERIAL_CONSOLE="0"
   AW_AUTOLOGIN="0"
+  AW_EXTRAS=""
 }
 aw_answers_reset
 
@@ -76,6 +77,7 @@ aw_answers_load() {
       KEYMAP)          AW_KEYMAP="$value" ;;
       SERIAL_CONSOLE)  AW_SERIAL_CONSOLE="$value" ;;
       AUTOLOGIN)       AW_AUTOLOGIN="$value" ;;
+      EXTRAS)          AW_EXTRAS="$value" ;;
       *) aw_log warn "unknown answer key ignored: $key" ;;
     esac
   done < "$file"
@@ -123,6 +125,13 @@ aw_answers_validate() {
 
   _aw_check AUTOLOGIN "$AW_AUTOLOGIN" '^[01]$' \
     '0 or 1' || ok=1
+
+  # Empty is valid - most installs want no extras at all - so this is checked
+  # only when set.
+  if [ -n "$AW_EXTRAS" ]; then
+    _aw_check EXTRAS "$AW_EXTRAS" '^[a-z][a-z0-9-]*(,[a-z][a-z0-9-]*)*$' \
+      'a comma-separated list of lowercase group names' || ok=1
+  fi
 
   # Secrets reach the target on stdin only, so their content is unconstrained.
   # They still have to be present.

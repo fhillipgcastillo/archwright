@@ -207,6 +207,32 @@ boundary_starts() {
 check "stopping the target stops the whole layer" boundary_stops
 check "starting the target restores it"           boundary_starts
 
+# --- Milestone 4: applications ----------------------------------------------
+check "firefox installed"           test -x /usr/bin/firefox
+check "neovim installed"            test -x /usr/bin/nvim
+check "nautilus installed"          test -x /usr/bin/nautilus
+check "image viewer installed"      test -x /usr/bin/imv
+check "video player installed"      test -x /usr/bin/mpv
+check "pdf viewer installed"        test -x /usr/bin/evince
+check "cli staples installed"       sh -c 'command -v eza bat fd fzf lazygit btop >/dev/null'
+check "vim is gone"                 sh -c '! test -x /usr/bin/vim'
+
+# The default handlers must actually RESOLVE, not merely be written to a file.
+mime_is() {
+  [ "$(runuser -u "$AW_USER" -- xdg-mime query default "$1" 2>/dev/null)" = "$2" ]
+}
+check "html opens in firefox"       mime_is text/html firefox.desktop
+check "png opens in imv"            mime_is image/png imv.desktop
+check "mp4 opens in mpv"            mime_is video/mp4 mpv.desktop
+check "pdf opens in evince"         mime_is application/pdf org.gnome.Evince.desktop
+check "folders open in nautilus"    mime_is inode/directory org.gnome.Nautilus.desktop
+
+# Selected extras present, unselected absent, and no repository enabled that
+# nothing asked for.
+check "selected extra installed"    pacman -Q docker
+check "unselected extra absent"     sh -c '! pacman -Q libreoffice-fresh >/dev/null 2>&1'
+check "multilib not enabled"        sh -c '! grep -qE "^\[multilib\]" /etc/pacman.conf'
+
 # Snapshot boot entries are the entire reason Limine was chosen over
 # systemd-boot, so this one is reported separately and loudly.
 if grep -q "rootflags=subvol=@snapshots/" /boot/limine.conf 2>/dev/null; then

@@ -593,7 +593,8 @@ def phase_boot():
         ser, _, _ = boot_live(stack)
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400),
-                               ("session", 1200), ("shell", 900)):
+                               ("session", 1200), ("shell", 900),
+                               ("apps", 1800)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"phase {phase} failed with status {rc}")
@@ -650,6 +651,16 @@ def phase_boot():
             ("stat -c %U /mnt/home/test/.config/waybar/config.jsonc", "test"),
             ("grep -c '\"on-click\": \"fuzzel\"'"
              " /mnt/home/test/.config/waybar/config.jsonc", "1"),
+            # --- apps phase ---
+            ("test -f /mnt/etc/xdg/mimeapps.list && echo MIME-OK", "MIME-OK"),
+            ("arch-chroot /mnt pacman -Q firefox >/dev/null && echo FF-OK", "FF-OK"),
+            ("arch-chroot /mnt pacman -Q docker >/dev/null && echo DOCKER-OK",
+             "DOCKER-OK"),
+            # Not selected, so it must be ABSENT. This is what proves the
+            # selection is real rather than 'install everything'.
+            ("arch-chroot /mnt pacman -Q libreoffice-fresh >/dev/null 2>&1"
+             " && echo PRESENT || echo ABSENT", "ABSENT"),
+            ("grep -c '^.multilib.' /mnt/etc/pacman.conf || true", "0"),
         ], "boot")
         log("PASS: bootloader, initramfs and snapper are configured in the target")
     finally:
@@ -772,7 +783,8 @@ def phase_all():
         guest_fetch_repo(ser, port)
         for phase, timeout in (("preflight", 300), ("disk", 900),
                                ("base", 2400), ("boot", 2400),
-                               ("session", 1200), ("shell", 900)):
+                               ("session", 1200), ("shell", 900),
+                               ("apps", 1800)):
             rc, _ = run_installer(ser, phase, timeout)
             if rc != 0:
                 die(f"install phase {phase} failed with status {rc}")

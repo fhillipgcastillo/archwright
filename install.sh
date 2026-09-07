@@ -38,7 +38,7 @@ Usage: install.sh --answers <file> [--phase <name>] [--yes]
 
   --answers <file>  Unattended answer file (required).
   --phase <name>    Run a single phase: preflight, disk, base, boot, session,
-                    shell.
+                    shell, apps.
                     Default: all of them, in order.
   --yes             Do not prompt before erasing the target disk.
   --resume          Continue an install that was interrupted. Reopens the
@@ -71,8 +71,8 @@ done
 [ -n "$ANSWERS" ] || { usage >&2; aw_die "--answers is required"; }
 
 case "$ONLY_PHASE" in
-  ''|preflight|disk|base|boot|session|shell) ;;
-  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base, boot, session or shell)" ;;
+  ''|preflight|disk|base|boot|session|shell|apps) ;;
+  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base, boot, session, shell or apps)" ;;
 esac
 
 aw_answers_load "$ANSWERS"
@@ -111,5 +111,6 @@ run_phase base      20-base.sh
 run_phase boot      30-boot.sh
 run_phase session   40-session.sh
 run_phase shell     50-shell.sh
+run_phase apps      60-apps.sh
 
 aw_log info "installation complete"
