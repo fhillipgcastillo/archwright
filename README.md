@@ -9,7 +9,7 @@ it by hand, and this **installer** that does it for you.
 
 ---
 
-## ⚠️ Status: milestone 4 of 7
+## ⚠️ Status: milestone 5 of 7
 
 **What works today:** a bootable, fully encrypted, snapshot-capable Arch system
 with a **usable Hyprland desktop** — status bar, notifications, app launcher,
@@ -21,8 +21,11 @@ desktop portals.
 and a PDF viewer, with sensible defaults — double-clicking a file opens the
 right thing. Plus the CLI staples (eza, bat, fd, fzf, lazygit, btop).
 
-**What does not exist yet:** the AI tooling (milestone 5); theming and hardware
-driver selection (milestone 6).
+**AI tooling:** launchers for Claude Code, Codex, opencode and Crush, plus the
+GitHub CLI. Nothing is downloaded at install time — see below.
+
+**What does not exist yet:** theming and hardware driver selection
+(milestone 6); the written guide (milestone 7).
 
 | Key | Does |
 |---|---|
@@ -32,6 +35,7 @@ driver selection (milestone 6).
 | `Super + Q` | Close window |
 | `Super + 1`…`4` | Switch workspace |
 | `Super + ,` | Dismiss a notification |
+| `Super + Shift + Ctrl + A` | The default agent, in its own terminal |
 | `Super + Shift + E` | Exit the session |
 
 The screen locks itself after five minutes idle.
@@ -236,6 +240,62 @@ sudo systemctl enable --now sshd
 
 Set up key authentication before you do that on any network you do not control.
 
+### The AI tooling
+
+Four agent CLIs are available from first login: `claude`, `codex`, `opencode`
+and `crush`, plus `gh` for GitHub.
+
+**None of them is downloaded at install time.** Each is a small launcher in
+`~/.local/bin` that hands the job to `mise`, which fetches and caches the real
+package the first time you run it. So the install stays fast, an agent you
+never use costs you nothing, and the first run of each one needs a network
+connection and takes a minute.
+
+You still have to sign in to each agent yourself — Archwright installs the
+command, not your account.
+
+```sh
+archwright default agent codex   # change which agent the keybind launches
+a                                # run the default agent here in this terminal
+archwright mise-install npm:@scope/tool    # add a launcher for anything else
+```
+
+`Super + Shift + Ctrl + A` opens the default agent in a terminal of its own.
+Both it and `a` read the same setting, so they never disagree.
+
+**Unattended modes ship switched off.** `~/.config/archwright/agents.sh`
+contains the aliases that run each agent without stopping to ask before it
+edits files or runs commands — written out, commented out, with the warning
+attached. Handing a machine you just installed to an agent that never pauses
+should be something you chose, not something you inherited. That file is yours;
+Archwright writes it once and never touches it again.
+
+**A passwordless sudo window, when you need one:**
+
+```sh
+archwright sudo-window 30    # 30 minutes, then it removes itself
+```
+
+This exists because a long run of privileged commands otherwise means a
+password prompt every few minutes. It is safer than the permanent `NOPASSWD`
+line people usually end up with: the rule is checked with `visudo` before it is
+installed, and a systemd timer removes it whether or not your terminal survives
+— a crashed shell or a closed lid cannot leave it open. It is still real root
+access with no password. Ask for the shortest window that does the job.
+
+Close one early with:
+
+```sh
+sudo rm -f /etc/sudoers.d/99-archwright-sudo-window
+```
+
+Agents that start on this machine also find a skill at
+`~/.claude/skills/archwright` describing the system's layout — where
+configuration lives, what owns what, and what not to edit.
+
+For a local model instead of a hosted one, install with `EXTRAS=ai-local` to
+get Ollama.
+
 ---
 
 ## Testing in a VM instead
@@ -285,9 +345,10 @@ behaves normally.
 
 ## Honest limitations
 
-Milestone 2 is verified in QEMU on every change. That proves the partitioning,
-encryption, filesystem, bootloader and session logic is correct. It does **not**
-prove these, which no one has yet tested on physical hardware:
+Every milestone is verified in QEMU on every change. That proves the
+partitioning, encryption, filesystem, bootloader, session and application logic
+is correct. It does **not** prove these, which no one has yet tested on physical
+hardware:
 
 - **NVMe disks.** Only `/dev/vda` has ever been exercised. The naming logic for
   `nvme0n1p1` and `mmcblk0p1` is unit-tested but has not touched real hardware.
@@ -302,6 +363,21 @@ prove these, which no one has yet tested on physical hardware:
 - **Wi-Fi drivers.** Some chipsets need firmware the ISO does not carry.
 - **The exact kernel command line.** Test builds set `SERIAL_CONSOLE=1`; a real
   install leaves it at `0`. A one-parameter difference, but a real one.
+
+The AI layer has its own limits worth stating plainly:
+
+- **No agent is signed in.** Every one needs your own account or API key. The
+  launcher is installed; authenticating is your first step.
+- **Agent CLIs move fast.** The launchers pin nothing, so you get whatever is
+  current the first time you run one. A breaking upstream change reaches you
+  directly.
+- **The commented auto-approve flags are not verified against every version.**
+  They ship switched off, so a stale flag gives you an error rather than wrong
+  behaviour — check the agent's own `--help` if one is rejected.
+- **`sudo-window` is genuinely passwordless root** for as long as it is open.
+  The auto-revert is tested, including that it fires when nothing is left
+  running to trigger it. That does not make an open window safe to walk away
+  from.
 
 Known gaps in the software itself are tracked in
 [`docs/decisions.md`](docs/decisions.md) under "Known gaps".

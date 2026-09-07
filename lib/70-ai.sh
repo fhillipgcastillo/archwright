@@ -60,8 +60,12 @@ aw_ai() {
     [ "$rc" -le 1 ] || aw_die "could not seed the $name launcher"
     # aw_seed_config installs 0644 because it exists for config files. A
     # launcher that is not executable fails in a way that looks like the agent
-    # is missing, so fix the mode on anything actually seeded.
-    [ "$rc" -eq 0 ] && chmod 0755 "$home/.local/bin/$name"
+    # is missing, so fix the mode on anything actually seeded - and only on
+    # that, because rc=1 means the file is the user's and is not ours to chmod.
+    if [ "$rc" -eq 0 ]; then
+      chmod 0755 "$home/.local/bin/$name" \
+        || aw_die "could not make the $name launcher executable"
+    fi
   done < <(aw_manifest_agents "$manifest")
 
   aw_log info "installing the shared agent skill"
@@ -113,8 +117,14 @@ aw_ai() {
   aw_log info "recording the default agent"
   install -d -m 0755 "$home/.local/state/archwright"
   if [ ! -f "$home/.local/state/archwright/default-agent" ]; then
-    aw_manifest_agents "$manifest" | head -1 | cut -f1 \
-      > "$home/.local/state/archwright/default-agent" \
+    # `sed -n 1p` rather than `head -1`: head closes the pipe as soon as it has
+    # its line, which can SIGPIPE the upstream grep. Under `set -o pipefail`
+    # that aborts the install, and only sometimes - the worst kind of bug to
+    # leave in an installer.
+    local first
+    first="$(aw_manifest_agents "$manifest" | cut -f1 | sed -n 1p)"
+    [ -n "$first" ] || aw_die "the agent manifest is empty - no default to record"
+    printf '%s\n' "$first" > "$home/.local/state/archwright/default-agent" \
       || aw_die "could not record the default agent"
   fi
 

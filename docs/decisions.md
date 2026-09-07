@@ -913,3 +913,127 @@ pdf and directories and compares the answer. Writing that assertion is what
 surfaced the dependency: resolution needs `update-desktop-database` to have run,
 which the apps phase now does.
 **Trigger:** writing the assertion honestly.
+
+---
+
+## D17 — `pi` is not shipped as an agent stub
+
+The design named six agent CLIs. Verifying them against the npm registry before
+planning found that `pi` has no installable command: `@mariozechner/pi-agent`
+publishes no `bin` at all, and `@mariozechner/pi` is a different tool whose
+binary is `pi-pods`.
+
+A stub is a promise that the command works. One that fails on first invocation
+is worse than an absent stub, because the failure arrives minutes after install
+with no obvious cause. So `pi` is left out, and a unit test asserts it does not
+come back without someone re-checking.
+
+**Revisit when:** a `pi` CLI is published that declares a `bin`.
+
+## D18 — `gh` is a package, not a stub
+
+`gh` is not a package name. Arch ships the GitHub CLI as `github-cli` in
+`extra`, and it is now in `manifest/core.packages`.
+
+Wrapping it in a mise stub instead would have taken a tool Arch already
+packages, signs and updates, and replaced it with an unsigned copy from a
+second registry that pacman cannot see. Stubs exist for what Arch does *not*
+package. A unit test asserts `gh` never appears in `manifest/agents.tsv`.
+
+## D19 — The `archwright` CLI arrives in milestone 5
+
+The plan put the CLI in milestone 6. But §9.2 and §9.4 define their features as
+`archwright default agent` and `archwright sudo-window` — the CLI is not a
+milestone 6 nicety, it is where milestone 5 lives.
+
+So `bin/archwright` ships now with `agent`, `default`, `mise-install`,
+`sudo-window`, `version` and `help`. Milestone 6 adds `hardware` and `theme` to
+the same dispatcher rather than introducing a second command.
+
+## D20 — Only `~/.claude/skills` gets the shared skill link
+
+The design symlinked the shared agent skill directory into four places:
+`~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills` and
+`~/.agents/skills`. Of those, only the first is read by anything today. `pi` is
+not shipped at all (D17), and neither Codex nor the `~/.agents` path has a
+settled per-user skills convention to link into.
+
+Three symlinks that nothing follows is the plymouth pattern (L36): something
+shipped because it was in a plan, surviving because removing it looks riskier
+than leaving it. `AW_AGENT_SKILL_LINKS` in `lib/70-ai.sh` is a list, so adding
+one back is a one-line change — and the phase now asserts every link resolves,
+so a wrong path fails the install instead of shipping dead.
+
+---
+
+## 2026-09-07 — milestone 5: the AI layer
+
+### L41 — Package verification before planning changed three design decisions
+Checking the Arch package API and the npm registry *before* writing the plan
+produced D17, D18 and D19 — one tool dropped, one moved out of the stub system
+entirely, and one milestone boundary redrawn. None of that would have surfaced
+until the gate, and D17 would not have surfaced until a user ran the command
+weeks later. This is the same check that caught `walker` being AUR-only and
+that would have caught the Limine tooling.
+**Trigger:** the rule, applied on purpose rather than remembered afterwards.
+
+### L42 — `nodejs` and `npm` are installed rather than bootstrapped by mise
+Every stub resolves through mise's npm backend, which needs a node toolchain.
+Letting mise install its own would put a runtime outside pacman's reach and
+turn the first launch of the first agent into a large silent download at the
+worst possible moment — someone trying an agent for the first time on a new
+machine. Arch packages both, so both are in the `ai` group.
+**Trigger:** writing the "a stub installs on first run" assertion and asking
+what it would actually download.
+
+### L43 — The sudoers rule is validated before it is installed, not after
+`archwright sudo-window` writes the NOPASSWD rule to a temp file, runs
+`visudo -cf` against it, and only then `install`s it into `/etc/sudoers.d/`. A
+malformed file there is not a bug you fix afterwards: `sudo` refuses to run at
+all, and a running session that has already dropped privileges has no way back
+in. The gate re-runs `visudo -c` against the whole configuration after the
+grant and again after the revert.
+**Trigger:** writing the feature and asking what the worst outcome is.
+
+### L44 — The revert is a systemd timer, not a background sleep
+A `sleep N && rm` subshell dies with the terminal that started it, so a closed
+lid, a crashed shell or a `killall` leaves passwordless root in place
+permanently, silently. `systemd-run --on-active` survives all of those because
+nothing about it depends on the granting process. Asking twice replaces the
+pending timer rather than letting the first one close the second window early.
+**Trigger:** asking how the feature fails rather than how it works.
+
+### L45 — The test harness was launching the developer's real agent
+`test_cli.sh` asserts that launching a missing agent fails. It passed — because
+the developer running the suite has a real `claude` on `PATH`, so the CLI's
+fallback found it and *launched Claude* instead of testing the failure path.
+The test now sandboxes `PATH` alongside `HOME`. Any test that exercises a
+`command -v` fallback has this hole.
+**Trigger:** an assertion failing for the wrong reason and being read rather
+than adjusted.
+
+### L46 — `cmd | grep -q` inverts under `pipefail`
+Two checks written as `archwright bad-command 2>&1 >/dev/null | grep -q .`
+reported failure while the code was correct: with `set -o pipefail` the
+pipeline reports the CLI's exit 2, not grep's verdict. Every such check in a
+`pipefail` file is silently wrong in one direction or the other. Capture the
+output into a variable and assert on that.
+**Trigger:** a green implementation failing its own test.
+
+### L47 — The shared skill link's depth is computed, not assumed
+`~/.claude/skills/archwright` is two levels below `$HOME`, so the relative link
+needs `../../`. Hardcoding that would produce a dangling symlink the moment
+someone adds a link at a different depth, and a dangling symlink is invisible
+until an agent silently fails to find the skill. The phase derives the depth
+from the path and then asserts the link resolves.
+**Trigger:** adding the second entry to a list that had one.
+
+## Known gaps carried out of milestone 5
+
+| Gap | Why it is acceptable for now |
+|---|---|
+| No agent is authenticated | Every agent needs the user's own credentials. Archwright installs the launcher; signing in is the user's first act. |
+| The first launch of each agent needs network | Inherent to lazy stubs. The trade is a fast install against one slow first run, and it is documented in the generated stub itself. |
+| `sudo-window`'s re-exec through `sudo` is not gated | The VM assertions already run as root, so they exercise everything after the re-exec. The re-exec itself is three lines and unit-tested for the validation that precedes it. |
+| Agent auto-approve flag names are not verified | They ship commented out, so a stale flag produces an error the user sees immediately rather than a silent wrong behaviour. The file says to check `--help`. |
+| No agent skill is verified to be *read* | The link resolves and the file parses as a skill, but nothing asserts Claude Code actually loads it — that would mean driving an agent inside the gate. |

@@ -72,9 +72,14 @@ done
 
 [ -n "$ANSWERS" ] || { usage >&2; aw_die "--answers is required"; }
 
-case "$ONLY_PHASE" in
-  ''|preflight|disk|base|boot|session|shell|apps) ;;
-  *) aw_die "unknown phase: $ONLY_PHASE (expected preflight, disk, base, boot, session, shell or apps)" ;;
+# Every phase name lives here once. Adding a run_phase line below without
+# adding it here fails at the point of use with a confusing message, so the
+# list and the runner are checked against each other by a unit test.
+AW_PHASES="preflight disk base boot session shell apps ai"
+
+case " $AW_PHASES " in
+  *" $ONLY_PHASE "*) ;;
+  *) [ -z "$ONLY_PHASE" ] || aw_die "unknown phase: $ONLY_PHASE (expected one of: $AW_PHASES)" ;;
 esac
 
 aw_answers_load "$ANSWERS"
