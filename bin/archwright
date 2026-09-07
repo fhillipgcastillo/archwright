@@ -209,7 +209,13 @@ EOF
   # Replace any window still pending, so asking twice extends rather than
   # leaving the first timer to close the second window early.
   systemctl stop "$AW_SUDO_UNIT.timer" >/dev/null 2>&1
+  # AccuracySec, explicitly. systemd defaults transient timers to one minute of
+  # slack and will happily coalesce this with other wakeups, so a 15-minute
+  # window would actually close somewhere between 15 and 16 minutes. For a
+  # passwordless root grant, "roughly" is the wrong unit: say when it ends and
+  # end it then. Costs one extra timer wakeup.
   if ! systemd-run --quiet --on-active="${minutes}m" --unit="$AW_SUDO_UNIT" \
+       --timer-property=AccuracySec=1s \
        /usr/bin/rm -f "$AW_SUDO_DROPIN"; then
     rm -f "$AW_SUDO_DROPIN"
     die "could not schedule the revert - the window was NOT opened"

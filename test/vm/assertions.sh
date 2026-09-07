@@ -327,6 +327,10 @@ check "the revert timer is armed"    sh -c 'systemctl is-active archwright-sudo-
 # Auto-revert is the property that makes the window safe to ship: the grant
 # must disappear even though nothing is left running to remove it. Waiting is
 # the only honest way to test that.
+#
+# 75s for a 1-minute window is a 15-second margin, which is only enough because
+# the timer sets AccuracySec explicitly. On systemd's default one-minute slack
+# this assertion fails - which is how that default was found.
 sleep 75
 check "the window reverted on its own" sh -c "! test -f $SUDO_DROPIN"
 check "sudoers still parses after the revert" visudo -c
