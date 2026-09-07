@@ -30,9 +30,11 @@ applications included, switchable after install with `archwright theme set`.
 **Hardware:** GPU driver selection for Intel, AMD and NVIDIA, and a session
 lock before suspend on laptops. Re-runnable with `archwright hardware`.
 
-**What does not exist yet:** the written guide (milestone 7), and a graphical
-way to do system tasks like joining a wifi network - see P2 in the decision
-log.
+**System tasks have graphical answers:** wifi, volume, Bluetooth, monitor
+arrangement, archives, a text editor and a calculator. Clicking an indicator on
+the bar opens the thing that manages it. `Print` takes a screenshot.
+
+**What does not exist yet:** the written guide (milestone 7).
 
 | Key | Does |
 |---|---|
@@ -43,6 +45,11 @@ log.
 | `Super + 1`…`4` | Switch workspace |
 | `Super + ,` | Dismiss a notification |
 | `Super + Shift + Ctrl + A` | The default agent, in its own terminal |
+| `Print` | Screenshot a region, to the clipboard |
+| `Shift + Print` | Screenshot the whole screen, to a file |
+| `Super + Shift + S` | Screenshot a region and annotate it |
+| `Super + Shift + T` | Pick a colour theme |
+| `Super + Shift + B` | Pick a background image |
 | `Super + Shift + E` | Exit the session |
 
 The screen locks itself after five minutes idle.
