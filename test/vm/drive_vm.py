@@ -769,7 +769,7 @@ def phase_resume():
 
 
 def phase_all():
-    """The milestone 1 gate: install, reboot, unlock, log in, assert."""
+    """The full gate: install, reboot, unlock, log in, assert everything."""
     disk = fresh_run_dir()
     port, httpd = serve_repo()
     proc = None
@@ -843,7 +843,7 @@ def phase_all():
         if "ASSERTIONS-PASSED" not in out:
             die("installed-system assertions failed - see the report above")
 
-        log("PASS: milestone 4 gate met - encrypted base, desktop, shell layer, applications")
+        log("PASS: gate met - encrypted base, desktop, shell layer, applications, AI layer")
         archive_last_good(disk)
     finally:
         for p in (proc, proc2):
