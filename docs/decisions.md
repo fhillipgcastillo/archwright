@@ -1795,6 +1795,46 @@ ACCEPTED line moving rather than as errors on someone's desktop.
 
 **Trigger:** the user asking what the `ignorezero` line was, then asking for it.
 
+### D28, measured
+
+"It parses" is not "it does anything". The user asked how they would know it
+works in the running system, and the honest first answer was that on the stock
+wallpaper they would not - a blurred gradient is the same gradient. So it was
+measured instead, in a booted image, with grim.
+
+Getting the measurement right took three attempts and both wrong ones were the
+same mistake: **no detail behind the surface under test.**
+
+  1. Screenshot a terminal full of text, make it the wallpaper. Invalid - a
+     full-screen grab has the old bar over the gradient in its top rows, so the
+     region being measured still had nothing behind it.
+  2. Grab below the bar instead, so the wallpaper is text all the way up. Now
+     the numbers moved, but "edge energy" only said the pixels changed, not
+     that the blur had stopped.
+  3. Compare against the same screen with **waybar stopped**. No inference
+     left:
+
+     | frame | the bar's transparent strip vs. no bar at all |
+     |---|---|
+     | `ignore_alpha` ON  | mean 0.000 - 0 of 19200 bytes differ. Identical. |
+     | `ignore_alpha` OFF | mean 4.060 - 819 bytes differ by >8 |
+
+Two consecutive frames were byte-identical, so the noise floor is exactly zero
+and those numbers are the rule and nothing else. With it on, the bar
+contributes nothing at all to its own transparent pixels.
+
+Checked at the same time, because a rule matching nothing looks exactly like a
+rule that works: all three namespaces are real - `waybar` (1280x34), `launcher`
+(fuzzel), `notifications` (mako). And every surface the threshold applies to
+sits above it: the pills at 0.80, their border at 0.65, fuzzel at 0xf2. The one
+value below 0.2 in the bar's stylesheet is a hover tint at 0.16, which is
+composited over an 0.80 pill before the compositor ever sees it.
+
+mako's background is opaque, so blur on `notifications` does nothing visible
+today and `ignore_alpha` there only trims the rounded corners. Correct and
+future-proof, not useful yet.
+
+
 ### L78 — A rejection is a fact; a rejection with a reason is an answer
 Two probes, same VM, same method. The first returned "rejected" three times and
 closed nothing. The second returned the parser's own sentence and closed the
