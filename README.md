@@ -368,6 +368,11 @@ Give it 4 GB RAM and a 20 GB disk, then follow steps 2–8 exactly as above.
 --phase all` builds and boots a throwaway VM and asserts the result. It requires
 Linux with KVM. See `CLAUDE.md`.
 
+For a single question rather than the whole gate, `python3
+tools/probe-installed.py -c '<command>'` boots the last passing image headless,
+runs the command inside it and prints the answer — minutes instead of an hour.
+It reports; it asserts nothing, and the disk is never written.
+
 ### The Super key, and viewing the VM from Windows
 
 **Solved — use virt-viewer rather than the WSLg window.** With a native SPICE

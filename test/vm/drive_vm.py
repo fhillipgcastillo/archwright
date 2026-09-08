@@ -174,12 +174,28 @@ class Serial:
 
         A sequence can be split across two recv() calls, so a trailing partial
         escape is held back rather than being stripped incorrectly.
+
+        That applies to a partial OSC BODY too, not just a partial escape
+        introducer. An OSC is `ESC ] text BEL-or-ST`, and sudo emits a long one
+        per session on systemd 257 - a hundred-odd characters of user,
+        hostname, machine id and pid. Split one across two reads and _ANSI sees
+        an ESC ] with no terminator, strips nothing, and the next pass sees a
+        body with no ESC and strips nothing again: the whole thing lands in the
+        transcript as `3008;start=...;type=session`. Holding back from the last
+        unterminated `ESC ]` costs one read of latency and removes the only
+        source of junk in an otherwise clean capture.
         """
         data = self._pending + chunk
         self._pending = ""
+        start = data.rfind("\x1b]")
+        if start != -1:
+            rest = data[start:]
+            if "\x07" not in rest and "\x1b\\" not in rest[2:]:
+                self._pending = rest
+                data = data[:start]
         m = _ESC_TAIL.search(data)
         if m:
-            self._pending = data[m.start():]
+            self._pending = data[m.start():] + self._pending
             data = data[:m.start()]
         self.buf += _ANSI.sub("", data).replace("\r", "")
 

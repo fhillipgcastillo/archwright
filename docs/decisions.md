@@ -1841,3 +1841,56 @@ closed nothing. The second returned the parser's own sentence and closed the
 question in one reload. The difference was one line of shell - keeping `out`
 instead of testing it - and it is the same lesson as L77 from the other side: a
 check that cannot explain itself costs a run per guess.
+
+---
+
+## D29 — A third VM tool, between the window and the gate
+
+Seven probes were run in one session to settle the `ignore_alpha` question, and
+every one of them was a throwaway script rebuilt from the last. `tools/
+probe-installed.py` is that script, kept.
+
+There were two ways to look at an installed system and nothing between them:
+`test/vm-install.sh --phase all` (an hour, asserts everything) and
+`tools/boot-installed.sh` (immediate, and you are the oracle). Neither answers
+"does the compositor accept this line" or "which namespace does mako register".
+Those took an hour each, and **an hour is expensive enough that the answer gets
+replaced by a guess** - which is precisely how `layerrule = blur, waybar` got
+written from memory and painted six errors across the desktop in milestone 6.
+
+Four to five minutes now. It boots the archived image headless with `-snapshot`,
+runs a script inside it, prints what it said and exits with its status.
+`--file SRC[:DEST]` carries a file from the working tree in, so a config added
+today is testable in a system installed last week - the trick that confirmed the
+shipped `hyprland.conf` verbatim rather than three lines in isolation.
+
+Deliberately not a gate: it reports, it asserts nothing, and there is no
+`--write`. The archive is what every other tool starts from.
+
+### L79 — The tool that reports the guest's output must not also echo it
+Two defects, both found by running the thing rather than reading it.
+
+`--file` fetched straight to the final destination, which works until the
+destination is outside the login user's home; `curl` cannot write `/etc`, and
+the retry loop turned one permission error into thirty identical ones. Files now
+land in `/tmp` and are placed with `install` as root, inheriting the ownership
+of whatever is already there - so a config dropped into a home stays the user's.
+
+And `Serial.run` echoes everything it reads, which is right for a gate
+transcript and wrong for a tool whose output *is* the guest's output: every line
+appeared twice. A quiet runner fixed that, and revealed the real one underneath.
+
+### L80 — Half an escape sequence is stripped by neither pass
+With the echo gone, the output still carried `3008;start=...;type=session`
+through the middle of it. `_ANSI` strips a whole OSC and `_ESC_TAIL` holds back
+a trailing escape introducer, but sudo on systemd 257 emits an OSC over a
+hundred characters long, so it straddles two `recv()` calls: the first pass sees
+`ESC ]` with no terminator and strips nothing, the second sees a body with no
+`ESC` and strips nothing either.
+
+The tempting fix was a regex in the new tool to scrub the leftovers - a
+band-aid over shared code, and one that would have had to guess where the body
+ended, since the terminator is the part that went missing. `Serial._feed` now
+holds back from the last unterminated `ESC ]`, which costs one read of latency
+and cleans up the gate transcript too. `test/unit/test_serial.sh` covers it,
+and it fails on the old reader with exactly the string that appeared on screen.
