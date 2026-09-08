@@ -126,6 +126,29 @@ if [ -f "$INSTALLER_GUIDE" ]; then
   note "$(printf '%s' "$phases" | wc -w | tr -d ' ') phases checked"
 fi
 
+# --- the README ---------------------------------------------------------------
+#
+# The README carries the same theme and extras tables as the Installer Guide,
+# and it lives in this repository where nothing was checking it. It went stale
+# within one change: three extras groups and the THEME key were added and the
+# README still described the old set, found by reading it rather than by any
+# check. A table duplicated in three places needs checking in three places.
+if [ -f README.md ]; then
+  printf 'Checking README.md\n'
+  for pid in $(aw_theme_list manifest/palettes); do
+    grep -qF "\`$pid\`" README.md || fail "palette not in the README: $pid"
+  done
+  for g in $(aw_manifest_groups manifest/extras.packages); do
+    grep -qF "\`$g\`" README.md || fail "extras group not in the README: $g"
+  done
+  # Every answer-file key the parser accepts should appear in the example.
+  while read -r key; do
+    [ -n "$key" ] || continue
+    grep -qE "^ *$key=" README.md || fail "answer key not in the README example: $key"
+  done < <(sed -n 's/^      \([A-Z_]\{2,\}\)).*/\1/p' lib/answers.sh)
+  note "themes, extras groups and answer keys checked"
+fi
+
 printf '\n'
 if [ "$problems" -ne 0 ]; then
   printf 'The Guide has drifted from the installer: %d problem(s).\n' "$problems"

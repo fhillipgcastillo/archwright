@@ -36,15 +36,32 @@ cd "$HERE" || exit 1
 PERSIST=0
 DISPLAY_MODE="gtk"
 SOURCE="last-good"
+SPICE_PORT=""
 
 usage() {
   cat <<'EOF'
-Usage: tools/boot-installed.sh [--write] [--serial-only]
+Usage: tools/boot-installed.sh [--write] [--serial-only] [--spice [port]]
 
   --write        Keep changes made in this session. Default is throwaway:
                  the disk is untouched and everything is discarded on exit.
   --serial-only  No graphical window; serial console only. Useful over SSH,
                  or when there is no display available.
+  --spice [port] Serve the display over SPICE (default port 5930) instead of
+                 opening a window here, and connect from a NATIVE client.
+
+                 This exists for one reason: the Super key. A window opened
+                 from WSL is drawn by WSLg, which is a Windows application, so
+                 Windows takes Super before the guest ever sees it. A SPICE
+                 client running natively on Windows can grab the keyboard
+                 itself - the same trick the Try Omarchy launcher uses, but in
+                 software that already exists.
+
+                 Install virt-viewer for Windows, then:
+                     remote-viewer spice://127.0.0.1:5930
+                 and press Ctrl+Alt+G inside it to take and release the grab.
+
+                 UNVERIFIED. Nobody has confirmed this delivers Super yet; it
+                 is here so it can be tried in one command instead of built.
   --latest       Boot the disk from the most recent run instead of the last
                  PASSING one. That disk is deleted and rebuilt at the start of
                  every test run, so only use this when no run is in progress.
@@ -61,6 +78,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --write)       PERSIST=1; shift ;;
     --serial-only) DISPLAY_MODE="none"; shift ;;
+    --spice)
+      DISPLAY_MODE="none"; SPICE_PORT="5930"; shift
+      case "${1:-}" in [0-9]*) SPICE_PORT="$1"; shift ;; esac ;;
     --latest)      SOURCE="latest"; shift ;;
     -h|--help)     usage; exit 0 ;;
     *) usage >&2; echo "unknown argument: $1" >&2; exit 1 ;;
@@ -120,6 +140,29 @@ args=(
   # passphrase prompt arrives here rather than in the window.
   -serial mon:stdio
 )
+
+if [ -n "$SPICE_PORT" ]; then
+  # Loopback only, and deliberately so: WSL2 forwards localhost to Windows, so
+  # a native client on the same machine can reach this and nothing else can.
+  # An unauthenticated SPICE server on 0.0.0.0 is a remote desktop with no
+  # password.
+  args+=(
+    -spice "port=$SPICE_PORT,addr=127.0.0.1,disable-ticketing=on"
+    -device virtio-serial-pci
+    -chardev "spicevmc,id=spicechannel0,name=vdagent"
+    -device "virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"
+  )
+  cat <<EOF
+SPICE display on 127.0.0.1:$SPICE_PORT (loopback only, no password).
+
+From Windows, with virt-viewer installed:
+    remote-viewer spice://127.0.0.1:$SPICE_PORT
+
+Ctrl+Alt+G takes and releases the keyboard grab there. The point of this mode
+is to find out whether a NATIVE client delivers Super to the guest, which a
+window drawn by WSLg cannot. Currently unverified - please say which it is.
+EOF
+fi
 
 if [ "$PERSIST" -eq 0 ]; then
   args+=(-snapshot)

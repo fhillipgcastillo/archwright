@@ -12,7 +12,7 @@ it by hand, and this **installer** that does it for you.
 ## Status: all seven milestones complete, verified in QEMU
 
 Every milestone is gated by a run that installs from the stock Arch ISO,
-reboots, unlocks the disk, logs in and asserts — 239 assertions at the last
+reboots, unlocks the disk, logs in and asserts — 266 assertions at the last
 count. Nothing described below is intention; it is what the gate checks.
 
 **It has not been run on physical hardware yet.** See "Honest limitations".
@@ -31,10 +31,10 @@ right thing. Plus the CLI staples (eza, bat, fd, fzf, lazygit, btop).
 the GitHub CLI. Nothing is downloaded at install time — see below.
 
 **Theming:** seven colour palettes with a generated matching wallpaper, GTK
-applications included, switchable after install with `archwright theme set`.
+applications included, switchable after install with `aw theme set`.
 
 **Hardware:** GPU driver selection for Intel, AMD and NVIDIA, and a session
-lock before suspend on laptops. Re-runnable with `archwright hardware`.
+lock before suspend on laptops. Re-runnable with `aw hardware`.
 
 **System tasks have graphical answers:** wifi, volume, Bluetooth, monitor
 arrangement, archives, a text editor and a calculator. Clicking an indicator on
@@ -180,6 +180,7 @@ LOCALE=en_US.UTF-8
 TIMEZONE=America/New_York  # see: timedatectl list-timezones
 KEYMAP=us
 AUTOLOGIN=0                # 1 skips the login prompt entirely
+THEME=mocha                # colour theme; see the table below
 EXTRAS=                    # optional extras, comma separated - see below
 SERIAL_CONSOLE=0           # leave at 0 - test builds only
 ```
@@ -195,7 +196,14 @@ Values containing `#` or trailing spaces must be quoted: `USER_PASSWORD="a#b "`.
 | `containers` | Docker, Docker Compose, Lazydocker |
 | `browsers` | Chromium |
 | `ai-local` | Ollama |
+| `desktop-tools` | Disks, system monitor, disk usage, keyring GUI, colour picker, screen recorder, clipboard history |
+| `theming-gui` | azote (wallpaper browser), nwg-look (GTK settings) |
+| `printing` | CUPS and the print dialog — **runs a daemon** |
 | `gaming` | Steam, Lutris — **enables the `multilib` repository** |
+
+**Themes.** `THEME=` takes one of `mocha` (default), `rosepine`, `tokyonight`,
+`gruvbox`, `nord`, `everforest`, `latte` (light). Change it later with
+`aw theme set <name>` or pick one visually with `Super + Shift + T`.
 
 For example `EXTRAS=office,containers`. Nothing outside the groups you name is
 installed, and `multilib` is enabled only if you choose `gaming`.
@@ -364,13 +372,57 @@ Linux with KVM. See `CLAUDE.md`.
 
 If you run the VM under WSL and look at it from Windows, **`Super + Return` and
 every other Super binding will do nothing** — Windows and WSLg both claim the
-Super key and it never reaches the guest. `Super + Q` will fire a Windows
+Super key first, so it never reaches the guest. `Super + Q` will fire a Windows
 shortcut instead.
 
 The configuration is not at fault: `hyprctl binds` shows `modmask: 64` for the
 binding, and it works on real hardware. Things that were tried and did **not**
 help: QEMU's `Ctrl+Alt+G` input grab, `GDK_BACKEND=x11`, the SDL backend with an
 explicit grab modifier, and VNC.
+
+**This is a QEMU-layer dead end, not an unsolvable one.** Every attempt above
+tries to fix it inside QEMU; the working fix lives in the host application.
+[Try Omarchy for Windows](https://github.com/omacom/try-omarchy-windows)
+delivers Super to a Hyprland guest by installing a low-level Windows keyboard
+hook **scoped strictly to window focus** — swallowing Super only while the guest
+window is foreground, passing it through otherwise. Their `docs/FINDINGS.md`
+also records the trap in the naive version: SDL's own grab keeps suppressing the
+Windows key even when the QEMU window is *not* focused, killing the Start menu
+and `Win+Shift+S` system-wide until the grab is released with `Ctrl+Alt+G`.
+Doing this for Archwright means a host-side launcher, which does not exist
+today.
+
+**Two cheaper things to try before writing one.**
+
+*A native SPICE client.* Every attempt listed above renders through WSLg, which
+is itself a Windows application — so Windows claims Super before QEMU is
+involved at all. A SPICE client running natively on Windows grabs the keyboard
+on its own side: the same mechanism as the Go launcher, in software that
+already exists. Install [virt-viewer for
+Windows](https://virt-manager.org/download), then:
+
+```sh
+bash tools/boot-installed.sh --spice
+# then, from Windows:
+#   remote-viewer spice://127.0.0.1:5930
+# Ctrl+Alt+G takes and releases the keyboard grab.
+```
+
+This is **unverified**. It is wired up so it can be tried in one command
+instead of argued about; if it works, this section should say so.
+
+*Move the modifier, for testing only.* The bindings are yours once seeded, so
+one line at the end of `~/.config/hypr/hyprland.conf` makes all of them
+reachable without Super:
+
+```
+$mod = ALT
+```
+
+`Alt + Return`, `Alt + Space`, `Alt + Q`. It changes nothing that ships and
+nothing on real hardware — it is a local edit to a file the installer never
+overwrites — and it makes a VM usable in about five seconds. Delete the line to
+go back.
 
 To drive the session anyway, talk to the compositor over the serial console:
 
