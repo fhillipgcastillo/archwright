@@ -1707,7 +1707,7 @@ mechanical: a check and a commit never belong in the same command.
 | `azote` and `nwg-look` are never installed by a gate run | The `theming-gui` group is asserted absent, not exercised. The conflict between azote's backend and the swaybg unit is reasoned, not observed. |
 | Bluetooth and printing are untestable here | The VM has no Bluetooth controller and no printer. `blueman-manager` exists as a binary; nothing pairs anything. |
 
-## P3 — No audio has ever been heard — NOT STARTED
+## P3 — No audio has ever been heard — **DONE**
 
 Found by the user playing YouTube in the VM through a SPICE client: video fine,
 no sound on the host.
@@ -1730,3 +1730,33 @@ assertion that plays something and confirms a sink actually consumed it -
 counters. Verify the flags against the QEMU in use before planning: this is the
 same class as the layerrule syntax, where the documented form and the installed
 version's form differed.
+
+### P3, resolved
+
+The VM has a sound card in both harnesses, `--spice` routes guest audio to
+virt-viewer so it can be heard on the host, and the user confirmed real sound
+from a real boot.
+
+Three assertions replace the two `pgrep` calls, in increasing order of meaning:
+the guest has a card, wireplumber published a sink from it, and a generated WAV
+plays through `pw-play`. The gate's backend discards the samples - there are no
+speakers - but everything from the application down to the device is now
+exercised. `-audiodev none` does produce a usable sink, which was the open
+question and is now answered rather than assumed.
+
+### L77 — Three gate runs to find a missing function, because the checks were mute
+The audio assertions failed twice with empty output. `check_v` exists to print
+a command's own output on failure; both new functions produced none - one piped
+straight into `grep -q`, the other sent stderr to `/dev/null` before returning
+1, so a broken WAV generator and a broken audio stack were indistinguishable.
+
+With the output restored, the third run named it in one line: `as_user: command
+not found`. The helper was defined in the milestone 3 section and called from
+the milestone 2 section above it. Nothing to do with audio at all.
+
+The lesson is not "define functions early". It is that **a check which cannot
+explain itself costs a full gate run per guess**, and that suppressing output
+inside a function defeats the wrapper written to show it. Two runs bought
+nothing.
+**Trigger:** the user hearing silence in the VM - the harness had asserted
+audio worked for five milestones on two process checks.
