@@ -140,7 +140,13 @@ check "the guest has a sound card" \
 # WirePlumber has to have picked the card up and made a sink of it. Without
 # this, PipeWire is running and there is nowhere for audio to go.
 audio_sink_exists() {
-  as_user wpctl status 2>/dev/null | sed -n '/Sinks:/,/^$/p' | grep -qE '[0-9]+\.'
+  local out
+  out="$(as_user wpctl status 2>&1)"
+  # Print what was seen. The first version piped straight into grep -q, so a
+  # failure reported "exit 1" and nothing else - precisely the blindness
+  # check_v exists to remove, reintroduced inside the function it calls.
+  printf '%s\n' "$out" | head -30
+  printf '%s' "$out" | sed -n '/Sinks:/,/^$/p' | grep -qE '[0-9]+\.'
 }
 check_v "wireplumber published a sink"  audio_sink_exists
 
@@ -149,17 +155,23 @@ check_v "wireplumber published a sink"  audio_sink_exists
 # from the application down to the device is exercised, which is the part that
 # was never checked.
 audio_plays() {
-  local wav=/tmp/aw-audio-check.wav
-  # A second of silence, generated rather than shipped: 8-bit mono 8kHz, so the
-  # header is the only interesting part and no asset has to live in the repo.
-  as_user python3 -c "
-import struct, sys, wave
+  local wav=/tmp/aw-audio-check.wav out rc
+  # A second of silence, generated rather than shipped, so no asset lives in
+  # the repository. Errors are NOT suppressed: the first version sent python's
+  # stderr to /dev/null and returned 1, so a broken generator and a broken
+  # audio stack looked identical from the outside.
+  out="$(as_user python3 -c "
+import wave
 w = wave.open('$wav', 'wb')
 w.setnchannels(1); w.setsampwidth(1); w.setframerate(8000)
-w.writeframes(b'\x80' * 8000)
+w.writeframes(bytes([128]) * 8000)
 w.close()
-" 2>/dev/null || return 1
-  as_user pw-play "$wav"
+" 2>&1)" || { printf 'could not generate the wav:\n%s\n' "$out"; return 1; }
+  [ -s "$wav" ] || { printf 'the generated wav is empty\n'; return 1; }
+
+  out="$(as_user pw-play "$wav" 2>&1)"; rc=$?
+  printf 'pw-play exit %s\n%s\n' "$rc" "$out"
+  return "$rc"
 }
 check_v "audio actually plays through the stack" audio_plays
 # Portals are D-Bus ACTIVATED: they start when an application asks for one.
