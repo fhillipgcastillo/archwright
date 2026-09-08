@@ -394,12 +394,11 @@ today.
 
 **Two cheaper things to try before writing one.**
 
-*A native SPICE client.* Every attempt listed above renders through WSLg, which
-is itself a Windows application — so Windows claims Super before QEMU is
-involved at all. A SPICE client running natively on Windows grabs the keyboard
-on its own side: the same mechanism as the Go launcher, in software that
-already exists. Install [virt-viewer for
-Windows](https://virt-manager.org/download), then:
+*A native SPICE client — this is the recommended way to look at the VM from
+Windows.* Every attempt listed above renders through WSLg, which is itself a
+Windows application, so Windows claims Super before QEMU is involved at all. A
+SPICE client running natively on Windows grabs the keyboard on its own side:
+the same mechanism as the Go launcher, in software that already exists.
 
 1. **Install virt-viewer on Windows** — the MSI from
    [virt-manager.org/download](https://virt-manager.org/download), under
@@ -431,8 +430,23 @@ Windows](https://virt-manager.org/download), then:
 > immediately. The script binds to that address and prints it, because it
 > changes when WSL restarts.
 
-This is **unverified**. It is wired up so it can be settled in one command
-instead of argued about; if it works, this section should say so.
+**What this mode does and does not give you**
+
+| | |
+|---|---|
+| Graphical output | In the virt-viewer window. Resizes with it. |
+| Keyboard, mouse | In that window. `Ctrl+Alt+G` grabs and releases. |
+| LUKS passphrase, kernel console | **In the WSL terminal**, not the window — the test image puts the console on `ttyS0` |
+| Audio | **None.** The VM is started with no sound card at all, so there is nothing to hear. See P3 in the decision log. |
+| Copy and paste with the host | Not set up — the guest has no `spice-vdagent` |
+| Whether `Super` now reaches the guest | The reason this mode exists. Confirm it and this table should say so. |
+
+Quitting: close the virt-viewer window and the VM keeps running — it is a
+client, not the machine. Stop the VM itself with `Ctrl-A` then `X` in the WSL
+terminal.
+
+The disk is opened throwaway by default, so anything you break is discarded on
+exit. Pass `--write` to keep changes.
 
 *Move the modifier, for testing only.* The bindings are yours once seeded, so
 one line at the end of `~/.config/hypr/hyprland.conf` makes all of them

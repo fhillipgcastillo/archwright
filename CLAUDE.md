@@ -76,6 +76,7 @@ repo — `/mnt` I/O is too slow for them.
 | **Unit tests** | `bash test/run-unit.sh` | Fast, no VM. Covers `lib/common.sh`, `lib/manifest.sh`, `lib/answers.sh`, `lib/partition.sh` |
 | **Lint** | `bash test/lint.sh` | The single source of truth for the shellcheck invocation — runs `shellcheck -x` over every tracked `*.sh`. Must be clean. No `# shellcheck disable` without an inline reason on the line above |
 | **Test** (primary oracle) | `bash test/vm-install.sh --phase all` | Full end-to-end in QEMU: OVMF UEFI, blank qcow2, stock Arch ISO, unattended install from `test/vm/answers.example.conf`, reboot, then assert the milestone gate. Each run gets a throwaway disk and its own copy of the firmware vars |
+| **Look at the VM from Windows** | `bash tools/boot-installed.sh --spice` | Boots the last passing image with a SPICE display instead of a WSLg window, and prints the URI to connect to with virt-viewer on Windows. The WSLg window cannot receive the Super key; a native client can. Console and LUKS prompt stay in the WSL terminal. No audio - the VM has no sound card (P3) |
 | **Run a single phase** | `bash test/vm-install.sh --phase <name>` | `iso-smoke`, `preflight`, `disk`, `base`, `all`. Far faster than the full run while iterating |
 | **Typecheck** | *n/a* | Shell project |
 | **Build** | *n/a* | No build step |
