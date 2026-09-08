@@ -368,12 +368,19 @@ Give it 4 GB RAM and a 20 GB disk, then follow steps 2–8 exactly as above.
 --phase all` builds and boots a throwaway VM and asserts the result. It requires
 Linux with KVM. See `CLAUDE.md`.
 
-### The Super key does not work in a VM viewed from Windows
+### The Super key, and viewing the VM from Windows
 
-If you run the VM under WSL and look at it from Windows, **`Super + Return` and
-every other Super binding will do nothing** — Windows and WSLg both claim the
-Super key first, so it never reaches the guest. `Super + Q` will fire a Windows
-shortcut instead.
+**Solved — use virt-viewer rather than the WSLg window.** With a native SPICE
+client every binding works, Super included, and no keyboard grab is needed. See
+"A native SPICE client" below for the three commands.
+
+The rest of this section is why, and what does *not* work, because that failure
+is easy to re-create by accident.
+
+If you open the QEMU window from WSL and look at it from Windows, **`Super +
+Return` and every other Super binding does nothing** — Windows and WSLg both
+claim the Super key first, so it never reaches the guest. `Super + Q` fires a
+Windows shortcut instead.
 
 The configuration is not at fault: `hyprctl binds` shows `modmask: 64` for the
 binding, and it works on real hardware. Things that were tried and did **not**
@@ -437,9 +444,9 @@ the same mechanism as the Go launcher, in software that already exists.
 | Graphical output | In the virt-viewer window. Resizes with it. |
 | Keyboard, mouse | In that window. `Ctrl+Alt+G` grabs and releases. |
 | LUKS passphrase, kernel console | **In the WSL terminal**, not the window — the test image puts the console on `ttyS0` |
-| Audio | **None.** The VM is started with no sound card at all, so there is nothing to hear. See P3 in the decision log. |
+| Audio | Routed over SPICE to the client, so virt-viewer plays it on the host. |
 | Copy and paste with the host | Not set up — the guest has no `spice-vdagent` |
-| Whether `Super` now reaches the guest | The reason this mode exists. Confirm it and this table should say so. |
+| `Super` and every binding | **Works.** virt-viewer is a native Windows application and receives the keys directly — no `Ctrl+Alt+G` needed. Focus governs it: click outside the window and Windows gets its keys back. |
 
 Quitting: close the virt-viewer window and the VM keeps running — it is a
 client, not the machine. Stop the VM itself with `Ctrl-A` then `X` in the WSL

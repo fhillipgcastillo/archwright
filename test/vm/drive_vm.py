@@ -308,6 +308,14 @@ def start_qemu(disk, serial_port, iso_boot=True):
         # exactly one card and one connector. It is also closer to real
         # hardware, which does show you boot output on the screen.
         "-device", "virtio-vga",
+        # A sound card with the output discarded. The gate cannot listen to
+        # anything, but without a card the guest has no audio hardware at all -
+        # and "pipewire is running" was the only thing ever asserted about
+        # audio, which is a process check, not a sound. With a card present the
+        # gate can assert a sink exists and that something played to it.
+        "-audiodev", "none,id=snd0",
+        "-device", "intel-hda",
+        "-device", "hda-duplex,audiodev=snd0",
         # Persistent pacman cache, shared read-write from the host. security_model
         # =none keeps ownership as the host user rather than trying to map
         # guest uids, which is what we want for a plain package cache.

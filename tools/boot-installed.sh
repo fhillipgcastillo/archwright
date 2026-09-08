@@ -136,10 +136,28 @@ args=(
   # virtio-gpu underneath (Linux gets a render node for Hyprland).
   -device virtio-vga
   -display "$DISPLAY_MODE"
+  # A sound card. Without one the guest has no audio hardware at all, PipeWire
+  # has nothing to play to, and "no sound" looks like a broken audio stack
+  # rather than a missing device. The backend is chosen below.
+  -device intel-hda
+  -device "hda-duplex,audiodev=snd0"
   # The installed test image puts the kernel console on ttyS0, so the LUKS
   # passphrase prompt arrives here rather than in the window.
   -serial mon:stdio
 )
+
+# Audio backend. Over SPICE the client plays it, which is the only way to hear
+# the guest from Windows. Otherwise try the host's PulseAudio (WSLg provides
+# one); `none` keeps the card present with the sound discarded, which is still
+# better than no card - the guest sees a sink either way.
+if [ -n "$SPICE_PORT" ]; then
+  args+=(-audiodev "spice,id=snd0")
+elif [ -n "${PULSE_SERVER:-}" ] || [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native" ]; then
+  args+=(-audiodev "pa,id=snd0")
+else
+  args+=(-audiodev "none,id=snd0")
+  echo "No host audio server found - the VM gets a sound card with no output."
+fi
 
 if [ -n "$SPICE_PORT" ]; then
   # NOT 127.0.0.1. WSL2's localhost forwarding relays to the WSL VM's address,

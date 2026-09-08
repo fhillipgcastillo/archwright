@@ -129,6 +129,39 @@ check "a monitor is present"        hypr_has_monitor
 check "the monitor has a mode"      hypr_monitor_mode
 check "pipewire is running"         pgrep -x pipewire
 check "wireplumber is running"      pgrep -x wireplumber
+
+# Those two are PROCESS checks. "Audio works" was claimed on the strength of
+# them from milestone 2 onward, and no sound had ever been produced anywhere -
+# the VM did not even have a sound card until this was written. A running
+# daemon with no hardware under it is exactly as silent as a broken one.
+check "the guest has a sound card" \
+  sh -c 'grep -qi "audio" /proc/asound/cards 2>/dev/null || test -d /proc/asound/card0'
+
+# WirePlumber has to have picked the card up and made a sink of it. Without
+# this, PipeWire is running and there is nowhere for audio to go.
+audio_sink_exists() {
+  as_user wpctl status 2>/dev/null | sed -n '/Sinks:/,/^$/p' | grep -qE '[0-9]+\.'
+}
+check_v "wireplumber published a sink"  audio_sink_exists
+
+# And the end of it: play something and require the pipeline to accept it.
+# The backend discards the samples - the gate has no speakers - but everything
+# from the application down to the device is exercised, which is the part that
+# was never checked.
+audio_plays() {
+  local wav=/tmp/aw-audio-check.wav
+  # A second of silence, generated rather than shipped: 8-bit mono 8kHz, so the
+  # header is the only interesting part and no asset has to live in the repo.
+  as_user python3 -c "
+import struct, sys, wave
+w = wave.open('$wav', 'wb')
+w.setnchannels(1); w.setsampwidth(1); w.setframerate(8000)
+w.writeframes(b'\x80' * 8000)
+w.close()
+" 2>/dev/null || return 1
+  as_user pw-play "$wav"
+}
+check_v "audio actually plays through the stack" audio_plays
 # Portals are D-Bus ACTIVATED: they start when an application asks for one.
 # With nothing running that wants a file picker or a screencast, the portal is
 # correctly not running, so asserting that it is tests nothing. Assert instead
