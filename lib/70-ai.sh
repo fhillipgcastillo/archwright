@@ -52,6 +52,13 @@ aw_ai() {
     || aw_die "could not install the archwright command"
   ln -sf /usr/share/archwright/bin/archwright /mnt/usr/bin/archwright \
     || aw_die "could not link archwright into /usr/bin"
+  # `aw` is the name people actually type; `archwright` stays so a config file,
+  # a guide or a search still leads somewhere. Both are symlinks to the same
+  # script rather than a shell alias, because most of the places this command is
+  # invoked from - compositor keybinds, pacman hooks, sudo, scripts - are not
+  # interactive shells and would never see an alias.
+  ln -sf /usr/share/archwright/bin/archwright /mnt/usr/bin/aw \
+    || aw_die "could not link aw into /usr/bin"
 
   # The stub tree is ours and is regenerated every run. The user's copies in
   # ~/.local/bin are seeded from it and never overwritten, so this is where a

@@ -66,16 +66,20 @@ editing it by hand is pointless - the next regeneration discards the edit.
 
 Never write a `pacman -Syu` that skips the snapshot step.
 
-## The archwright command
+## The `aw` command
 
 ```
-archwright agent [args]           launch the default agent
-archwright default agent <name>   change which agent that is
-archwright mise-install <spec>    add a lazy launcher for another CLI
-archwright sudo-window [minutes]  passwordless sudo that reverts itself
+aw agent [args]           launch the default agent
+aw default agent <name>   change which agent that is
+aw theme set <name>       change the colour theme
+aw wallpaper set <path>   use a particular background image
+aw update                 update the system, snapshotted and reversible
+aw hardware               re-run driver detection
+aw mise-install <spec>    add a lazy launcher for another CLI
+aw sudo-window [minutes]  passwordless sudo that reverts itself
 ```
 
-`archwright sudo-window` exists so a long run of privileged commands does not
+`aw sudo-window` exists so a long run of privileged commands does not
 mean a password prompt every few minutes. It removes itself with a systemd
 timer. Ask for the shortest window that does the job, and do not assume one is
 open - check for `/etc/sudoers.d/99-archwright-sudo-window`.

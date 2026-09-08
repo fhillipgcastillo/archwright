@@ -254,6 +254,20 @@ AW_HOME="/home/$AW_USER"
 
 check "archwright command installed" test -x /usr/bin/archwright
 check "archwright help exits 0"      archwright help
+
+# `aw` is the name people actually type. A symlink that is missing or dangling
+# fails as "command not found", which reads like the install went wrong rather
+# than like one link was forgotten.
+check "the short name is installed"  test -x /usr/bin/aw
+check "aw help exits 0"              aw help
+same_command() { [ "$(readlink -f /usr/bin/aw)" = "$(readlink -f /usr/bin/archwright)" ]; }
+check "both names are the same command" same_command
+check "aw does real work, not just help" aw theme show
+# Nothing else may own /usr/bin/aw. If a future package claims it, pacman would
+# report a conflict at install time - this catches the case where something has
+# already replaced our symlink.
+check "the short name is ours" \
+  sh -c 'readlink /usr/bin/aw | grep -q "^/usr/share/archwright/"'
 exits_two() { archwright no-such-subcommand >/dev/null 2>&1; [ "$?" -eq 2 ]; }
 check "unknown subcommand exits 2"   exits_two
 
@@ -319,7 +333,7 @@ check "no unattended mode is enabled" no_live_yolo
 
 check "the work directory exists"    test -d "$AW_HOME/Work"
 check "a default agent is recorded"  sh -c 'grep -qx claude '"$AW_HOME"'/.local/state/archwright/default-agent'
-check "the agent keybind is seeded"  grep -q "archwright agent" "$AW_HOME/.config/hypr/shell.conf"
+check "the agent keybind is seeded"  grep -q "aw agent" "$AW_HOME/.config/hypr/shell.conf"
 
 # A stub must actually resolve its package on first invocation. This downloads
 # for real and is the slowest assertion in the file; it is also the only one
@@ -795,7 +809,7 @@ check "zip opens in the archive manager"  mime_is application/zip org.gnome.File
 check "screenshot keybind seeded" \
   grep -q "archwright-screenshot region" "$AW_HOME/.config/hypr/shell.conf"
 check "theme picker keybind seeded" \
-  grep -q "archwright theme pick" "$AW_HOME/.config/hypr/shell.conf"
+  grep -q "aw theme pick" "$AW_HOME/.config/hypr/shell.conf"
 check "bar opens the network editor" \
   grep -q "nm-connection-editor" "$AW_HOME/.config/waybar/config.jsonc"
 check "bar has a bluetooth module" \
@@ -844,11 +858,20 @@ check "the choice was forgotten"    sh -c "! test -e $AW_HOME/.local/state/archw
 # colour - deliberately not a check on the name, so a future light palette works
 # without editing the script - and an untested calculation would have shipped a
 # light theme with every GTK application rendering dark-on-dark.
+# XDG_RUNTIME_DIR, not just HOME. gsettings writes through dconf, which needs
+# the session bus, and the bus address is derived from XDG_RUNTIME_DIR. Without
+# it the writes fail silently while reads still return the value the session
+# set at login - so the first version of these assertions failed on a working
+# product, and the final "went back to dark" check passed trivially because
+# nothing had ever changed.
+aw_session_run() {
+  runuser -u "$AW_USER" -- env HOME="$AW_HOME" XDG_RUNTIME_DIR="$AW_XDG" "$@"
+}
 gsetting_is() {
-  [ "$(aw_user_run gsettings get org.gnome.desktop.interface "$1" 2>/dev/null | tr -d "'")" = "$2" ]
+  [ "$(aw_session_run gsettings get org.gnome.desktop.interface "$1" 2>/dev/null | tr -d "'")" = "$2" ]
 }
 
-check "switching to the light palette works" aw_user_run archwright theme set latte
+check "switching to the light palette works" aw_session_run archwright theme set latte
 check "the light palette's colours applied" \
   grep -q "8839ef" "$AW_HOME/.config/hypr/colors.conf"
 check "GTK follows it into light mode"       gsetting_is color-scheme prefer-light
@@ -856,7 +879,7 @@ check "and picks the light GTK theme"        gsetting_is gtk-theme adw-gtk3
 check "and the light icon set"               gsetting_is icon-theme Papirus-Light
 
 # Back to the documented default for anyone who pokes around this VM.
-aw_user_run archwright theme set mocha >/dev/null 2>&1
+aw_session_run archwright theme set mocha >/dev/null 2>&1
 check "restored to mocha"           wallpaper_points_at /usr/share/archwright/wallpapers/mocha.png
 check "and GTK went back to dark"   gsetting_is color-scheme prefer-dark
 

@@ -80,9 +80,13 @@ is_bin_name() { [[ ${1-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 
 usage() {
   cat <<'EOF'
-archwright - manage an Archwright system
+aw - manage an Archwright system
 
-usage: archwright <command> [arguments]
+usage: aw <command> [arguments]
+
+`archwright` is the same command under its full name. Configuration and
+documentation in this project use the long form, so that searching for it
+finds something; type whichever you prefer.
 
 commands:
   agent [args...]              launch the default agent, forwarding arguments
@@ -97,12 +101,12 @@ commands:
   help                         this text
 
 examples:
-  archwright default agent codex
-  archwright theme pick
-  archwright wallpaper set ~/Pictures/city.jpg
-  archwright mise-install npm:@scope/tool tool
-  archwright update
-  archwright sudo-window 30
+  aw theme pick
+  aw wallpaper set ~/Pictures/city.jpg
+  aw default agent codex
+  aw update
+  aw sudo-window 30
+  aw mise-install npm:@scope/tool tool
 EOF
 }
 
@@ -154,7 +158,7 @@ cmd_agent() {
   elif target="$(command -v "$name" 2>/dev/null)"; then
     :
   else
-    die "the default agent [$name] is not installed. Set another with: archwright default agent <name>"
+    die "the default agent [$name] is not installed. Set another with: aw default agent <name>"
   fi
 
   # Agents refuse to treat the home directory as a workspace - too much of it
@@ -264,12 +268,12 @@ cmd_theme() {
     set)
       shift
       local want="${1-}"
-      [ -n "$want" ] || usage_error "theme set: which theme? try: archwright theme list"
+      [ -n "$want" ] || usage_error "theme set: which theme? try: aw theme list"
       [ "$#" -le 1 ] || usage_error "theme set: too many arguments"
       is_command_name "$want" \
         || usage_error "theme set: [$want] is not a theme name"
       [ -f "$AW_PALETTES/$want.palette" ] \
-        || die "no such theme: $want. Try: archwright theme list"
+        || die "no such theme: $want. Try: aw theme list"
       [ -r "$AW_THEME_LIB/theme.sh" ] \
         || die "the theme library is missing from $AW_THEME_LIB"
 
@@ -293,7 +297,7 @@ cmd_theme() {
       # desktop; it does not get to overwrite a picture somebody picked. Same
       # contract as the config files - once you decide, we stop deciding.
       if [ -r "$AW_STATE_DIR/wallpaper-custom" ]; then
-        printf 'keeping your wallpaper (%s); undo with: archwright wallpaper reset\n' \
+        printf 'keeping your wallpaper (%s); undo with: aw wallpaper reset\n' \
           "$(cat "$AW_STATE_DIR/wallpaper-custom")"
       else
         ln -sfn "$AW_WALLPAPERS/$want.png" "$AW_STATE_DIR/wallpaper.png" \
@@ -451,7 +455,7 @@ cmd_wallpaper() {
       printf '%s\n' "$img" > "$AW_WALLPAPER_CHOICE" \
         || die "could not record the wallpaper choice"
       printf 'wallpaper set to %s\n' "$img"
-      printf 'it will survive a theme change; undo with: archwright wallpaper reset\n'
+      printf 'it will survive a theme change; undo with: aw wallpaper reset\n'
       ;;
     reset)
       [ "$#" -le 1 ] || usage_error "wallpaper reset: takes no arguments"

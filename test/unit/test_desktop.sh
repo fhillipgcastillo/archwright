@@ -86,7 +86,7 @@ else _fail "waybar" "a module is listed in modules-* but never configured"; fi
 # clue. Every command a bind invokes must be either a package in core or one of
 # our own binaries.
 shellconf="$ROOT/config/hypr/shell.conf"
-ours="archwright archwright-screenshot fuzzel makoctl loginctl systemctl uwsm foot"
+ours="aw archwright archwright-screenshot fuzzel makoctl loginctl systemctl uwsm foot"
 while read -r cmd; do
   [ -n "$cmd" ] || continue
   if printf '%s\n' "$core" | grep -qx "$cmd"; then _pass; continue; fi
