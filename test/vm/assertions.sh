@@ -85,6 +85,15 @@ hyprctl_user() {
     env XDG_RUNTIME_DIR="$AW_XDG" HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl "$@"
 }
 
+# Run something as the logged-in user, inside their session. Defined HERE
+# rather than further down with the shell-layer helpers: the audio assertions
+# in the section above call it, and a function defined after its first caller
+# is simply not there - the gate reported "as_user: command not found" and
+# nothing else, which read like a broken audio stack.
+as_user() {
+  runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" "$@"
+}
+
 # A bounded wait, not a fixed sleep: the session starts in parallel with our
 # login, so how long it takes varies with disk and CPU. Waiting for the actual
 # condition is faster when it is ready and more informative when it is not.
@@ -190,9 +199,6 @@ check "packaged defaults present"   test -f /usr/share/archwright/default-config
 # --- Milestone 3: the shell layer -------------------------------------------
 systemctl_user() {
   runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" systemctl --user "$@"
-}
-as_user() {
-  runuser -u "$AW_USER" -- env XDG_RUNTIME_DIR="$AW_XDG" "$@"
 }
 
 wait_for_shell() {
