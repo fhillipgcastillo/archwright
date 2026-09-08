@@ -706,11 +706,16 @@ probe_layerrule() {
 }
 
 printf '      --- layerrule syntax probe (informational) ---\n'
+# Both shipped forms, each next to the spelling it replaced. A Hyprland bump
+# that changes the grammar again shows up here as an ACCEPTED line moving,
+# which is cheaper to read than six errors painted over the desktop.
 for candidate in \
   'layerrule = blur, waybar' \
   'layerrule = blur on, match:namespace waybar' \
   'layerrule = match:namespace = waybar, blur = true' \
-  'layerrule = blur = true, match:namespace = waybar'
+  'layerrule = blur = true, match:namespace = waybar' \
+  'layerrule = ignorezero, waybar' \
+  'layerrule = ignore_alpha 0.2, match:namespace waybar'
 do
   if probe_layerrule "$candidate"; then
     printf '      ACCEPTED: %s\n' "$candidate"

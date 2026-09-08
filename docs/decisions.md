@@ -1552,7 +1552,7 @@ lint rule rather than another log entry.
 | Only Mocha is exercised end to end | The gate installs Mocha and switches to Tokyo Night and back. The other five are covered by rendering every template for every palette in unit tests, which catches a bad value but not a bad-looking one. |
 | GTK theming is asserted by file, not by appearance | `archwright-apply-gtk-theme` needs a session bus; the gate checks the settings files exist and that the script is autostarted, not that Nautilus came up dark. |
 | No light palette is gated | `latte` renders and is selectable, but the gate never installs it, so the light branch of the GTK applier is unexercised. |
-| Blur on the bar, launcher and notifications is off | The pre-0.53 `layerrule` syntax was rejected by Hyprland 0.56 and the replacement could not be confirmed from a trustworthy source. Settling it needs a candidate written into a sourced file and the config reloaded, rather than `hyprctl keyword`, which does not apply layer rules at all. Windows were never blurred, which was the expensive part. |
+| ~~Blur on the bar, launcher and notifications is off~~ **CLOSED** | The replacement syntax was confirmed against the installed compositor and blur ships; its `ignore_alpha` companion followed in D28. |
 
 ### L71 — Hyprland starts happily on a config it rejects
 The user booted the installed system and found six errors painted across the
@@ -1760,3 +1760,44 @@ inside a function defeats the wrapper written to show it. Two runs bought
 nothing.
 **Trigger:** the user hearing silence in the VM - the harness had asserted
 audio worked for five milestones on two process checks.
+
+---
+
+## D28 — The blur companion rule, settled by asking the parser
+
+The one line left open out of milestone 6. Blur ships on the bar, the launcher
+and the notifications; `ignorezero`, the rule that stops the compositor blurring
+the fully transparent margin around them, did not, because its post-0.53
+spelling had never been put to a compositor and a guess in a config file is what
+painted six errors over the desktop the first time.
+
+Settled by booting the last passing image read-only and reloading candidate
+lines into it, the same method the blur lines were confirmed with, but with one
+change that did all the work: **print the parser's error text instead of a
+pass/fail.** Nine candidates went in as one file, one reload, and the answer
+came back named:
+
+    invalid field ignorezero: missing a value      <- the old name, still known
+    invalid field type ignorealpha                 <- not this either
+    (no error)                                     <- ignore_alpha 0.2
+
+So on 0.56 the field is `ignore_alpha` and it takes a threshold. Round one had
+probed three `ignorezero` spellings one at a time, each costing a reload, and
+learned only that all three were wrong. Round two asked for the message and
+finished in a single pass.
+
+`0.2`, not `0.0`: it covers the antialiased rounded corners as well, and every
+surface that should be blurred sits at 0.80 alpha or above.
+
+The gate's informational probe now carries both shipped forms next to the
+spelling each replaced, so the next Hyprland grammar change shows up as an
+ACCEPTED line moving rather than as errors on someone's desktop.
+
+**Trigger:** the user asking what the `ignorezero` line was, then asking for it.
+
+### L78 — A rejection is a fact; a rejection with a reason is an answer
+Two probes, same VM, same method. The first returned "rejected" three times and
+closed nothing. The second returned the parser's own sentence and closed the
+question in one reload. The difference was one line of shell - keeping `out`
+instead of testing it - and it is the same lesson as L77 from the other side: a
+check that cannot explain itself costs a run per guess.
