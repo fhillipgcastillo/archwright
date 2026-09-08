@@ -56,9 +56,9 @@ Usage: tools/boot-installed.sh [--write] [--serial-only] [--spice [port]]
                  itself - the same trick the Try Omarchy launcher uses, but in
                  software that already exists.
 
-                 Install virt-viewer for Windows, then:
-                     remote-viewer spice://127.0.0.1:5930
-                 and press Ctrl+Alt+G inside it to take and release the grab.
+                 Install virt-viewer for Windows; the exact URI to use is
+                 printed when the VM starts. Ctrl+Alt+G takes and releases the
+                 keyboard grab.
 
                  UNVERIFIED. Nobody has confirmed this delivers Super yet; it
                  is here so it can be tried in one command instead of built.
@@ -142,25 +142,38 @@ args=(
 )
 
 if [ -n "$SPICE_PORT" ]; then
-  # Loopback only, and deliberately so: WSL2 forwards localhost to Windows, so
-  # a native client on the same machine can reach this and nothing else can.
-  # An unauthenticated SPICE server on 0.0.0.0 is a remote desktop with no
-  # password.
+  # NOT 127.0.0.1. WSL2's localhost forwarding relays to the WSL VM's address,
+  # so a service bound to WSL's own loopback is invisible from Windows -
+  # measured, after the first version of this claimed otherwise: a listener on
+  # 127.0.0.1 inside WSL was unreachable from the host, and the same listener
+  # on the eth0 address answered immediately.
+  #
+  # That address is on WSL's NAT network, which the host can route to and the
+  # rest of the LAN cannot, so this is host-reachable without being exposed.
+  spice_addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [ -n "$spice_addr" ] || spice_addr=0.0.0.0
   args+=(
-    -spice "port=$SPICE_PORT,addr=127.0.0.1,disable-ticketing=on"
+    -spice "port=$SPICE_PORT,addr=$spice_addr,disable-ticketing=on"
     -device virtio-serial-pci
     -chardev "spicevmc,id=spicechannel0,name=vdagent"
     -device "virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"
   )
   cat <<EOF
-SPICE display on 127.0.0.1:$SPICE_PORT (loopback only, no password).
 
-From Windows, with virt-viewer installed:
-    remote-viewer spice://127.0.0.1:$SPICE_PORT
+  SPICE display: spice://$spice_addr:$SPICE_PORT
 
-Ctrl+Alt+G takes and releases the keyboard grab there. The point of this mode
-is to find out whether a NATIVE client delivers Super to the guest, which a
-window drawn by WSLg cannot. Currently unverified - please say which it is.
+  From Windows, with virt-viewer installed:
+      remote-viewer spice://$spice_addr:$SPICE_PORT
+
+  Ctrl+Alt+G in that window takes and releases the keyboard grab, which is the
+  whole point of this mode: a native client can capture Super, and a window
+  drawn by WSLg cannot. UNVERIFIED - please say which it turns out to be.
+
+  The passphrase prompt and the console stay in THIS terminal; only the
+  graphical output moves. No password on the SPICE port: the address above is
+  on WSL's NAT network, reachable from this machine and not from the LAN, and
+  the VM's own credentials are published in the answer file anyway.
+
 EOF
 fi
 

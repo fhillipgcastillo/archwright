@@ -401,14 +401,37 @@ on its own side: the same mechanism as the Go launcher, in software that
 already exists. Install [virt-viewer for
 Windows](https://virt-manager.org/download), then:
 
-```sh
-bash tools/boot-installed.sh --spice
-# then, from Windows:
-#   remote-viewer spice://127.0.0.1:5930
-# Ctrl+Alt+G takes and releases the keyboard grab.
-```
+1. **Install virt-viewer on Windows** — the MSI from
+   [virt-manager.org/download](https://virt-manager.org/download), under
+   "Virt Viewer". It gives you `remote-viewer`, also in the Start menu as
+   *Remote Viewer*.
+2. **Start the VM from WSL as usual, with `--spice`:**
 
-This is **unverified**. It is wired up so it can be tried in one command
+   ```sh
+   wsl -d Ubuntu -e bash -c 'cd /mnt/e/data/dev/archwright && bash tools/boot-installed.sh --spice'
+   ```
+
+   No QEMU window opens. The script prints the exact URI to connect to, and
+   **the serial console stays in this terminal** — the LUKS passphrase prompt
+   arrives here, not in the graphical client.
+3. **Connect from Windows** using the URI it printed, for example:
+
+   ```
+   remote-viewer spice://172.23.182.84:5930
+   ```
+
+   Or open *Remote Viewer* from the Start menu and paste the URI in.
+4. **Press `Ctrl+Alt+G`** in that window to take the keyboard grab, and again
+   to release it. That grab is the thing being tested.
+
+> **Not `127.0.0.1`.** WSL2's localhost forwarding relays to the WSL VM's
+> address, so a service bound to WSL's own loopback is invisible from Windows —
+> measured, not assumed: a listener on `127.0.0.1` inside WSL was unreachable
+> from the host while the same listener on the eth0 address answered
+> immediately. The script binds to that address and prints it, because it
+> changes when WSL restarts.
+
+This is **unverified**. It is wired up so it can be settled in one command
 instead of argued about; if it works, this section should say so.
 
 *Move the modifier, for testing only.* The bindings are yours once seeded, so

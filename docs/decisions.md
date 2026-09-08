@@ -1706,3 +1706,27 @@ mechanical: a check and a commit never belong in the same command.
 | Whether fuzzel renders a wallpaper PNG as a swatch is unverified | The icon is passed as an absolute path through Rofi's protocol; fuzzel documents icon *names*. If it cannot load one, the list degrades to text. Nothing asserts which happened. |
 | `azote` and `nwg-look` are never installed by a gate run | The `theming-gui` group is asserted absent, not exercised. The conflict between azote's backend and the swaybg unit is reasoned, not observed. |
 | Bluetooth and printing are untestable here | The VM has no Bluetooth controller and no printer. `blueman-manager` exists as a binary; nothing pairs anything. |
+
+## P3 — No audio has ever been heard — NOT STARTED
+
+Found by the user playing YouTube in the VM through a SPICE client: video fine,
+no sound on the host.
+
+**Cause, confirmed:** QEMU is started with no sound card. Neither
+`tools/boot-installed.sh` nor `test/vm/drive_vm.py` passes `-audiodev` or any
+audio device, so the guest has no hardware for PipeWire to play to. Nothing is
+misconfigured in the guest.
+
+**The sharper problem.** The gate asserts `pipewire` and `wireplumber` are
+running. That is processes, not output — so the audio stack has never been
+shown to produce a sound on any machine, virtual or physical. "Audio works" has
+been claimed since milestone 2 on the strength of two `pgrep` calls.
+
+**What it needs.** An audio device on the QEMU command line
+(`-audiodev pa|pipewire,id=snd0 -device intel-hda -device hda-duplex,audiodev=snd0`
+or the SPICE audio channel, which virt-viewer can carry), and then a gate
+assertion that plays something and confirms a sink actually consumed it -
+`wpctl status` showing a sink, or `pw-cat` to a null sink with a check on the
+counters. Verify the flags against the QEMU in use before planning: this is the
+same class as the layerrule syntax, where the documented form and the installed
+version's form differed.
