@@ -80,11 +80,19 @@ class Serial:
 
     def _feed(self, chunk):
         # An escape sequence can straddle two recv() calls; hold back a partial.
+        # That includes a partial OSC body, not just the introducer: sudo emits
+        # a ~100-char OSC per session on systemd 257.
         data = self._pending + chunk
         self._pending = ""
+        start = data.rfind("\x1b]")
+        if start != -1:
+            rest = data[start:]
+            if "\x07" not in rest and "\x1b\\" not in rest[2:]:
+                self._pending = rest
+                data = data[:start]
         m = _ESC_TAIL.search(data)
         if m:
-            self._pending = data[m.start():]
+            self._pending = data[m.start():] + self._pending
             data = data[:m.start()]
         self.buf += _ANSI.sub("", data).replace("\r", "")
 
