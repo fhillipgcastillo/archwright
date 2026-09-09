@@ -368,6 +368,11 @@ Give it 4 GB RAM and a 20 GB disk, then follow steps 2–8 exactly as above.
 --phase all` builds and boots a throwaway VM and asserts the result. It requires
 Linux with KVM. See `CLAUDE.md`.
 
+For a single question rather than the whole gate, `python3
+tools/probe-installed.py -c '<command>'` boots the last passing image headless,
+runs the command inside it and prints the answer — minutes instead of an hour.
+It reports; it asserts nothing, and the disk is never written.
+
 ### The Super key, and viewing the VM from Windows
 
 **Solved — use virt-viewer rather than the WSLg window.** With a native SPICE
@@ -495,10 +500,13 @@ hardware:
   refuse the NVRAM boot entry the installer creates. It falls back to the
   removable-media path (`EFI/BOOT/BOOTX64.EFI`), which nearly all firmware
   boots, but this is untested against anything quirky.
-- **Graphics drivers.** The test VM uses a virtio GPU. Real machines need real
-  drivers: `mesa` covers Intel and AMD, but **NVIDIA cards will not work** until
-  the hardware milestone adds driver selection. On an NVIDIA machine, expect the
-  base system to boot and the graphical session to fail.
+- **Graphics drivers.** The test VM uses a virtio GPU, so every hardware script
+  finds nothing and no-ops - which is what the gate proves. Detection is
+  unit-tested against fixture sysfs trees for Intel, AMD, NVIDIA, hybrid laptops
+  and virtio; what the drivers then do is untested. On NVIDIA the installer now
+  selects `nvidia-open-dkms` and sets `nvidia_drm modeset=1` in both
+  `modprobe.d` and the initramfs, which is the usual cause of a black screen
+  under Wayland. Whether that is sufficient on a real card is unknown.
 - **Wi-Fi drivers.** Some chipsets need firmware the ISO does not carry.
 - **The exact kernel command line.** Test builds set `SERIAL_CONSOLE=1`; a real
   install leaves it at `0`. A one-parameter difference, but a real one.

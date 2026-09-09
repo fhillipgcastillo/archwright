@@ -1552,7 +1552,7 @@ lint rule rather than another log entry.
 | Only Mocha is exercised end to end | The gate installs Mocha and switches to Tokyo Night and back. The other five are covered by rendering every template for every palette in unit tests, which catches a bad value but not a bad-looking one. |
 | GTK theming is asserted by file, not by appearance | `archwright-apply-gtk-theme` needs a session bus; the gate checks the settings files exist and that the script is autostarted, not that Nautilus came up dark. |
 | No light palette is gated | `latte` renders and is selectable, but the gate never installs it, so the light branch of the GTK applier is unexercised. |
-| Blur on the bar, launcher and notifications is off | The pre-0.53 `layerrule` syntax was rejected by Hyprland 0.56 and the replacement could not be confirmed from a trustworthy source. Settling it needs a candidate written into a sourced file and the config reloaded, rather than `hyprctl keyword`, which does not apply layer rules at all. Windows were never blurred, which was the expensive part. |
+| ~~Blur on the bar, launcher and notifications is off~~ **CLOSED** | The replacement syntax was confirmed against the installed compositor and blur ships; its `ignore_alpha` companion followed in D28. |
 
 ### L71 — Hyprland starts happily on a config it rejects
 The user booted the installed system and found six errors painted across the
@@ -1760,3 +1760,137 @@ inside a function defeats the wrapper written to show it. Two runs bought
 nothing.
 **Trigger:** the user hearing silence in the VM - the harness had asserted
 audio worked for five milestones on two process checks.
+
+---
+
+## D28 — The blur companion rule, settled by asking the parser
+
+The one line left open out of milestone 6. Blur ships on the bar, the launcher
+and the notifications; `ignorezero`, the rule that stops the compositor blurring
+the fully transparent margin around them, did not, because its post-0.53
+spelling had never been put to a compositor and a guess in a config file is what
+painted six errors over the desktop the first time.
+
+Settled by booting the last passing image read-only and reloading candidate
+lines into it, the same method the blur lines were confirmed with, but with one
+change that did all the work: **print the parser's error text instead of a
+pass/fail.** Nine candidates went in as one file, one reload, and the answer
+came back named:
+
+    invalid field ignorezero: missing a value      <- the old name, still known
+    invalid field type ignorealpha                 <- not this either
+    (no error)                                     <- ignore_alpha 0.2
+
+So on 0.56 the field is `ignore_alpha` and it takes a threshold. Round one had
+probed three `ignorezero` spellings one at a time, each costing a reload, and
+learned only that all three were wrong. Round two asked for the message and
+finished in a single pass.
+
+`0.2`, not `0.0`: it covers the antialiased rounded corners as well, and every
+surface that should be blurred sits at 0.80 alpha or above.
+
+The gate's informational probe now carries both shipped forms next to the
+spelling each replaced, so the next Hyprland grammar change shows up as an
+ACCEPTED line moving rather than as errors on someone's desktop.
+
+**Trigger:** the user asking what the `ignorezero` line was, then asking for it.
+
+### D28, measured
+
+"It parses" is not "it does anything". The user asked how they would know it
+works in the running system, and the honest first answer was that on the stock
+wallpaper they would not - a blurred gradient is the same gradient. So it was
+measured instead, in a booted image, with grim.
+
+Getting the measurement right took three attempts and both wrong ones were the
+same mistake: **no detail behind the surface under test.**
+
+  1. Screenshot a terminal full of text, make it the wallpaper. Invalid - a
+     full-screen grab has the old bar over the gradient in its top rows, so the
+     region being measured still had nothing behind it.
+  2. Grab below the bar instead, so the wallpaper is text all the way up. Now
+     the numbers moved, but "edge energy" only said the pixels changed, not
+     that the blur had stopped.
+  3. Compare against the same screen with **waybar stopped**. No inference
+     left:
+
+     | frame | the bar's transparent strip vs. no bar at all |
+     |---|---|
+     | `ignore_alpha` ON  | mean 0.000 - 0 of 19200 bytes differ. Identical. |
+     | `ignore_alpha` OFF | mean 4.060 - 819 bytes differ by >8 |
+
+Two consecutive frames were byte-identical, so the noise floor is exactly zero
+and those numbers are the rule and nothing else. With it on, the bar
+contributes nothing at all to its own transparent pixels.
+
+Checked at the same time, because a rule matching nothing looks exactly like a
+rule that works: all three namespaces are real - `waybar` (1280x34), `launcher`
+(fuzzel), `notifications` (mako). And every surface the threshold applies to
+sits above it: the pills at 0.80, their border at 0.65, fuzzel at 0xf2. The one
+value below 0.2 in the bar's stylesheet is a hover tint at 0.16, which is
+composited over an 0.80 pill before the compositor ever sees it.
+
+mako's background is opaque, so blur on `notifications` does nothing visible
+today and `ignore_alpha` there only trims the rounded corners. Correct and
+future-proof, not useful yet.
+
+
+### L78 — A rejection is a fact; a rejection with a reason is an answer
+Two probes, same VM, same method. The first returned "rejected" three times and
+closed nothing. The second returned the parser's own sentence and closed the
+question in one reload. The difference was one line of shell - keeping `out`
+instead of testing it - and it is the same lesson as L77 from the other side: a
+check that cannot explain itself costs a run per guess.
+
+---
+
+## D29 — A third VM tool, between the window and the gate
+
+Seven probes were run in one session to settle the `ignore_alpha` question, and
+every one of them was a throwaway script rebuilt from the last. `tools/
+probe-installed.py` is that script, kept.
+
+There were two ways to look at an installed system and nothing between them:
+`test/vm-install.sh --phase all` (an hour, asserts everything) and
+`tools/boot-installed.sh` (immediate, and you are the oracle). Neither answers
+"does the compositor accept this line" or "which namespace does mako register".
+Those took an hour each, and **an hour is expensive enough that the answer gets
+replaced by a guess** - which is precisely how `layerrule = blur, waybar` got
+written from memory and painted six errors across the desktop in milestone 6.
+
+Four to five minutes now. It boots the archived image headless with `-snapshot`,
+runs a script inside it, prints what it said and exits with its status.
+`--file SRC[:DEST]` carries a file from the working tree in, so a config added
+today is testable in a system installed last week - the trick that confirmed the
+shipped `hyprland.conf` verbatim rather than three lines in isolation.
+
+Deliberately not a gate: it reports, it asserts nothing, and there is no
+`--write`. The archive is what every other tool starts from.
+
+### L79 — The tool that reports the guest's output must not also echo it
+Two defects, both found by running the thing rather than reading it.
+
+`--file` fetched straight to the final destination, which works until the
+destination is outside the login user's home; `curl` cannot write `/etc`, and
+the retry loop turned one permission error into thirty identical ones. Files now
+land in `/tmp` and are placed with `install` as root, inheriting the ownership
+of whatever is already there - so a config dropped into a home stays the user's.
+
+And `Serial.run` echoes everything it reads, which is right for a gate
+transcript and wrong for a tool whose output *is* the guest's output: every line
+appeared twice. A quiet runner fixed that, and revealed the real one underneath.
+
+### L80 — Half an escape sequence is stripped by neither pass
+With the echo gone, the output still carried `3008;start=...;type=session`
+through the middle of it. `_ANSI` strips a whole OSC and `_ESC_TAIL` holds back
+a trailing escape introducer, but sudo on systemd 257 emits an OSC over a
+hundred characters long, so it straddles two `recv()` calls: the first pass sees
+`ESC ]` with no terminator and strips nothing, the second sees a body with no
+`ESC` and strips nothing either.
+
+The tempting fix was a regex in the new tool to scrub the leftovers - a
+band-aid over shared code, and one that would have had to guess where the body
+ended, since the terminator is the part that went missing. `Serial._feed` now
+holds back from the last unterminated `ESC ]`, which costs one read of latency
+and cleans up the gate transcript too. `test/unit/test_serial.sh` covers it,
+and it fails on the old reader with exactly the string that appeared on screen.

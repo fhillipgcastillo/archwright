@@ -73,14 +73,15 @@ repo — `/mnt` I/O is too slow for them.
 
 | Job | Command | Notes |
 |---|---|---|
-| **Unit tests** | `bash test/run-unit.sh` | Fast, no VM. Covers `lib/common.sh`, `lib/manifest.sh`, `lib/answers.sh`, `lib/partition.sh` |
-| **Lint** | `bash test/lint.sh` | The single source of truth for the shellcheck invocation — runs `shellcheck -x` over every tracked `*.sh`. Must be clean. No `# shellcheck disable` without an inline reason on the line above |
+| **Unit tests** | `bash test/run-unit.sh` | Fast, no VM. Twelve files covering `lib/` (common, manifest, answers, partition, theme, agents, config, desktop, hardware, install), `bin/archwright`, and the serial reader the VM tooling depends on |
+| **Lint** | `bash test/lint.sh` | The single source of truth for the shellcheck invocation — runs `shellcheck -x` over every tracked `*.sh` PLUS `bin/*`, which have no extension by design, and applies a local rule against `cmd | grep -q` under pipefail. Must be clean. No `# shellcheck disable` without an inline reason on the line above |
 | **Test** (primary oracle) | `bash test/vm-install.sh --phase all` | Full end-to-end in QEMU: OVMF UEFI, blank qcow2, stock Arch ISO, unattended install from `test/vm/answers.example.conf`, reboot, then assert the milestone gate. Each run gets a throwaway disk and its own copy of the firmware vars |
-| **Look at the VM from Windows** | `bash tools/boot-installed.sh --spice` | Boots the last passing image with a SPICE display instead of a WSLg window, and prints the URI to connect to with virt-viewer on Windows. The WSLg window cannot receive the Super key; a native client can. Console and LUKS prompt stay in the WSL terminal. No audio - the VM has no sound card (P3) |
+| **Look at the VM from Windows** | `bash tools/boot-installed.sh --spice` | Boots the last passing image with a SPICE display instead of a WSLg window, and prints the URI to connect to with virt-viewer on Windows. The WSLg window cannot receive the Super key; a native client can. Console and LUKS prompt stay in the WSL terminal. Audio works over SPICE (P3) |
+| **Ask the installed system** | `python3 tools/probe-installed.py -c '<command>'` | Boots the last PASSING image headless, runs a script or one-liner inside it, prints what it said and exits with its status. Four to five minutes against an hour for the full gate, which is what makes it cheap enough to check a fact instead of guessing at it. `--file SRC[:DEST]` carries a file from the working tree in, so a change made today can be tested in a system installed last week. The disk is opened with `-snapshot` and never written. Reports; asserts nothing |
 | **Run a single phase** | `bash test/vm-install.sh --phase <name>` | `iso-smoke`, `preflight`, `disk`, `base`, `all`. Far faster than the full run while iterating |
 | **Typecheck** | *n/a* | Shell project |
 | **Build** | *n/a* | No build step |
-| **Docs check** | `bash test/check-guide-drift.sh` | Verifies the guide's package and hotkey tables match `manifest/`. Not written until milestone 7 — there is no guide to check against before then |
+| **Docs check** | `bash test/check-guide-drift.sh` | Verifies the two vault guides and the README still agree with `manifest/` and `install.sh` on packages, palettes, extras groups and phases. Skips with a message when the vault is not reachable, so a fresh clone is not red |
 | **One-time setup** | `tools/fetch-arch-iso.sh`, `tools/extract-iso-boot.sh` | Populate the cache. `test/vm-install.sh` calls them if the cache is empty |
 
 **Oracle by change type:**
@@ -91,11 +92,13 @@ repo — `/mnt` I/O is too slow for them.
 - **Guide edit** → `check-guide-drift.sh`. Prose changes still need a read-through
   against the spec.
 - **Refactor** → the VM run must produce an identical installed system.
+- **A question about the installed system** ("does this parse", "what namespace
+  does it register", "did this file land") → `tools/probe-installed.py`. Minutes,
+  not an hour. It answers; it does not assert, so a milestone still needs its
+  gate.
 
-**Status:** the commands above are the project's defined interface, specified in
-the design. They are implemented milestone by milestone (spec §14) — check
-whether a given script exists before assuming it can be run, and implement it as
-part of the milestone that needs it rather than stubbing it.
+**Status:** every command above exists and runs. All seven milestones plus P2
+(graphical applications) and P3 (audio) are complete and gated.
 
 ### How to use the adversarial reviewer without it eating the milestone
 
@@ -133,7 +136,7 @@ reviewer and do not serialise behind each other.
 still happens: a fix to a security bug is a new change (D-log L56), and two of
 this feature's three defects were introduced while fixing the first.
 
-**Spend a unit test before a gate run.** A VM gate is ~6 minutes; two of
+**Spend a unit test before a gate run.** A VM gate is tens of minutes; two of
 milestone 5's five runs died on things a unit test now catches in a second
 (`--phase ai` missing from the whitelist). Anything checkable statically gets a
 unit test *before* the gate is started, not after it fails.
@@ -149,6 +152,6 @@ The guide is **not in this repo**. It is a note in the author's Obsidian vault a
 `docs/decisions.md`.
 
 Practical consequence: `check-guide-drift.sh` needs a path to the guide file,
-supplied by `ARCHWRIGHT_GUIDE_PATH` or `--guide <path>`. It skips with a clear
+supplied by `ARCHWRIGHT_GUIDE` / `ARCHWRIGHT_INSTALLER_GUIDE` or `--guide` / `--installer-guide`. It skips with a clear
 message rather than failing when the guide is not reachable, so the check is safe
 to run in CI or on a fresh clone.
