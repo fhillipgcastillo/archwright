@@ -225,6 +225,7 @@ $label = Get-Content "$cache\boot\archisolabel.txt"
   -device virtio-vga `
   -audiodev dsound,id=snd0 -device intel-hda -device hda-duplex,audiodev=snd0 `
   -display gtk `
+  -serial stdio `
   -cdrom "$cache\archlinux.iso" `
   -kernel "$cache\boot\vmlinuz-linux" `
   -initrd "$cache\boot\initramfs-linux.img" `
@@ -236,6 +237,15 @@ A window opens and Linux boots. It takes about 30 seconds.
 Why `-kernel` and `-initrd` when the ISO already contains them: passing them
 directly is the only way to add `console=ttyS0,115200` to the boot options, which
 is what makes the guest scriptable. It also skips the boot menu.
+
+**`-serial stdio` matters.** That `console=ttyS0,115200` sends the system console
+to the serial port, and `-serial stdio` is what connects that port to the
+PowerShell window you launched from. Kernel messages appear there, not in the VM
+window. You will need it again, and for a more painful reason, at step 10.
+
+The Arch live ISO happens to log you in automatically on the graphical screen as
+well, so you can work in the VM window regardless. The installed system does
+not — see step 10.
 
 ### Step 6 — log in
 
@@ -311,21 +321,51 @@ Same command as step 5, **minus the last four lines** — no `-cdrom`, no
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0 `
   -device virtio-vga `
   -audiodev dsound,id=snd0 -device intel-hda -device hda-duplex,audiodev=snd0 `
-  -display gtk
+  -display gtk `
+  -serial stdio
 ```
 
 Keep the **same `OVMF_VARS.fd`**. It holds the boot entry the installer wrote,
 and reusing it is exactly what proves that entry works.
 
-You should see, in order:
+> **Do not drop `-serial stdio` here.** `answers.example.conf` sets
+> `SERIAL_CONSOLE=1`, which puts `console=ttyS0,115200` on the kernel command
+> line. Linux then sends the console to the serial port and *nothing* to the VM's
+> screen. Without a serial backend the VM window freezes on Limine's last
+> message, `Loading Kernel...`, and stays there forever — while the kernel sits
+> waiting at a passphrase prompt you cannot see. Typing in the VM window does not
+> help: those keystrokes go to `tty0`, and the prompt is on `ttyS0`.
 
-1. `Please enter passphrase for disk...` — type **`testpassphrase`**. Nothing
-   appears as you type; that is normal.
+**Watch the PowerShell window, not the VM window**, for the first two steps:
+
+1. `Please enter passphrase for disk...` — type **`testpassphrase`** into the
+   PowerShell window. Nothing appears as you type; that is normal.
 2. A login prompt — user **`test`**, password **`testpassword`**.
-3. The Hyprland desktop.
+3. The Hyprland desktop, which appears in the **VM window**.
 
 That sequence is the whole point of the exercise: an encrypted disk that
 unlocks, a bootloader the installer registered, and a desktop that starts.
+
+### Getting the passphrase prompt onto the VM's own screen
+
+Typing the passphrase into the host terminal is an artifact of the test answer
+file, not how Archwright behaves normally. Two ways out:
+
+**For a fresh install** — copy `test/vm/answers.example.conf`, delete the
+`SERIAL_CONSOLE=1` line, and install with your copy. The prompt then renders on
+the VM's screen. Delete `AUTOLOGIN=1` too if you want the real login greeter.
+Both settings exist only so the automated harness can drive the guest.
+
+**For a disk you already installed** — the command line stays editable after the
+fact, which is why Archwright deliberately avoids a unified kernel image. Boot
+once with `-serial stdio`, then in the guest:
+
+```sh
+sudo sed -i 's/ console=ttyS0,115200//' /etc/archwright/cmdline
+sudo archwright-limine-update
+```
+
+Reboot, and the passphrase prompt is on the VM's screen.
 
 ### Starting over
 
@@ -346,6 +386,7 @@ open, and the error is `Device or resource busy`.
 |---|---|
 | `-accel help` lists only `tcg` | Windows Hypervisor Platform is off. See §3. Running under `tcg` works but takes hours instead of minutes |
 | Guest panics about a quarter-second into boot | Someone widened the `-cpu` line. Any AVX-class feature is accepted at launch and then kills the guest kernel. Keep `qemu64,+ssse3,+sse4.1,+sse4.2,+popcnt,+aes` exactly |
+| Stuck forever on `Loading Kernel...`, seems very slow | Almost always a missing `-serial stdio` when booting a system installed from `answers.example.conf`. The console is on the serial port, so the screen never updates past Limine's last message and the kernel is waiting at an unseen passphrase prompt. Nothing is actually slow. See step 10 |
 | Black window, no text ever | Usually the `-append` line lost its `archisolabel=`. The value must match `boot\archisolabel.txt` |
 | `curl` in the guest hangs or 404s | The host web server is not running, or is serving the wrong folder. It must be the folder containing `repo.tar` |
 | `unknown phase: all` | There is no `all`. Omit `--phase` to run everything |
