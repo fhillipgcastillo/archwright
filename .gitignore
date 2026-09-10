@@ -2,5 +2,6 @@
 .vmrun/
 *.qcow2
 *.iso
+*.tar
 __pycache__/
 *.pyc

@@ -387,6 +387,9 @@ is worth more than testing the author's host OS.
 - **`test/vm-install.ps1` is out of scope for milestone 1.** The Windows host
   path is not being maintained or verified for now. Reinstating it is a small
   piece of work — `tools/env.sh` is the only place that resolves host paths.
+  **Amended by D30.** A verified Windows host path now exists, but as standalone
+  Python under `test/windows/`; this script was never reinstated and should not
+  be. WSL2 remains the oracle.
 
 **Guide consequence.** The guide's main body assumes bare metal on any UEFI
 machine and makes no host-OS assumptions. Host-specific material lives in a
@@ -1894,3 +1897,99 @@ ended, since the terminator is the part that went missing. `Serial._feed` now
 holds back from the last unterminated `ESC ]`, which costs one read of latency
 and cleans up the gate transcript too. `test/unit/test_serial.sh` covers it,
 and it fails on the old reader with exactly the string that appeared on screen.
+
+---
+
+## D30 — Windows runs the same gate, beside the Linux one and not inside it
+
+**Amends D13, which stands.** WSL2 is still the oracle. What changed is the
+claim in D13's last consequence — that the Windows host path "is not being
+maintained or verified" — and the reasoning that put it there.
+
+**Chosen.** A second host path in `test/windows/`: the same `install.sh`, the
+same stock Arch ISO, the same answer file, driven from Windows directly under
+QEMU's `whpx` accelerator by standalone Python that shares no code with
+`test/vm/drive_vm.py`.
+
+**Rejected.**
+- *Teaching `drive_vm.py` about Windows* — a conditional accelerator, a second
+  firmware path list, optional 9p arguments. This was the first proposal and it
+  was wrong: it risks the trusted check in order to serve an experiment, and a
+  gate that has quietly stopped gating is undetectable by definition.
+- *Try Omarchy's model.* Both `try-omarchy` projects boot a prebuilt rootfs with
+  `-kernel`/`-initrd` and no firmware, no partition table, no bootloader and no
+  encryption — they delete the entire layer this installer exists to build.
+  Excellent as a list of WHPX traps, useless as a harness.
+- *Bundling a source-built QEMU* to regain virtio-9p, as they do. Disproportionate
+  when the only thing 9p carries here is a package cache.
+- *`test/vm-install.ps1`* — D13 imagined the Windows path as a PowerShell twin of
+  the entry script. The work is in the Python driver, not the wrapper, so the
+  file was never reinstated and should not be.
+
+**Why.** D13 rejected native Windows QEMU on the grounds that WHPX is slower than
+KVM for no gain. That is still true and is not the point: the value is a second
+host that needs no WSL at all, and a way to *watch* an install on the machine the
+author actually uses. Two of D13's premises were also untested. QEMU for Windows
+turned out to be an ordinary `winget` package already present, and whether OVMF
+would boot at all under WHPX — the question that decided everything — had been
+answered by nobody, including the projects that had done the most WHPX work.
+
+Measured on this machine rather than reasoned about:
+
+| | |
+|---|---|
+| OVMF via pflash under WHPX | boots to the EFI shell, NVRAM writable |
+| Full install, ten phases | 311.8s |
+| `sync; systemctl poweroff -i` | QEMU exits on its own in 4.7s, status 0 |
+| Installed system from disk | LUKS unlocks, login accepted |
+| `test/vm/assertions.sh` in it | 269 assertions pass |
+
+**Consequences.**
+
+- **There is no folder sharing.** The stock Windows build reports `fsdev support
+  is disabled`; virtio-9p is not compiled in. The working tree reaches the guest
+  over HTTP through slirp, which is what the Linux path already does, so nothing
+  was lost there. The package cache simply does not exist on this host and every
+  run re-downloads — about four and a half minutes.
+- **`--host-pkg-cache` must never be passed on this path.** It makes pacstrap use
+  the live environment's cache, which on a stock ISO is a tmpfs in RAM.
+- **The `-cpu` model is a ceiling, not a preference.**
+  `qemu64,+ssse3,+sse4.1,+sse4.2,+popcnt,+aes` is the most upstream WHPX
+  survives. Any AVX-class feature is accepted at launch and then panics the guest
+  kernel at ~0.25s in `fpstate_reset`, so a bad value reads as a hang rather than
+  a rejection.
+- **The duplication is deliberate and it has a running cost.** `winvm.py`
+  reimplements `Serial`. L80's fix to that reader did not reach it and had to be
+  carried across by hand after the fact. `test/windows/test_serial.py` mirrors
+  `test/unit/test_serial.sh` case for case so the two can be diffed.
+
+### L81 — The documented blocker did not reproduce, and checking took two probes
+Try Omarchy's findings say a guest-initiated poweroff wedges stock WHPX QEMU at
+the final ACPI transition, and that force-killing it discards writes issued ~20s
+earlier. That is exactly the handoff `phase_all` is built on, so it looked like
+the end of the idea before it started.
+
+It does not happen here. The probe writes two markers — one synced, one written
+immediately before poweroff and never synced — and **both survive**, which
+distinguishes a clean shutdown from a race that happened to be won. Their guest
+direct-kernel-boots a full desktop and ours boots firmware into archiso; which
+difference matters is still unknown.
+
+The lesson is not "their finding was wrong." It is that a blocker inherited from
+someone else's notes is a hypothesis about *your* configuration, and the probe
+that settles it was ninety lines and ran in two minutes.
+
+### L82 — A guide is not written until every command in it has been run
+The first Windows guide was assembled from arguments that were individually
+verified, and it was still unusable. It told the reader to serve the repo root
+and fetch `repo.tar` from it — a file that only exists because the probes build
+it in Python. Anyone following it reached a live root shell and then a 404, with
+the packaging step absent entirely.
+
+Two more of the same kind surfaced on the way out: `--phase all`, which the
+installer rejects because the whitelist holds only the ten phase names, and a
+`-serial` argument dropped from the boot command, which turns `SERIAL_CONSOLE=1`
+into a VM frozen on Limine's `Loading Kernel...` forever while the kernel waits
+at a passphrase prompt on a port with nothing attached to it.
+
+Every one of those reads correctly. None of them survives being typed.
